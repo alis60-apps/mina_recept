@@ -287,9 +287,8 @@ with flik2:
                         <head>
                         <meta charset="utf-8">
                         <style>
-                          @page {{ size: auto; margin: 15mm; }}
-                          body {{ margin: 0; font-family: sans-serif; background-color: transparent; color: #111; line-height: 1.4; }}
-                          .btn-container {{ display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }}
+                          body {{ margin: 0; font-family: sans-serif; background-color: transparent; }}
+                          .btn-container {{ display: flex; gap: 8px; flex-wrap: wrap; }}
                           button {{
                               background-color: #ff4b4b;
                               color: white;
@@ -315,7 +314,11 @@ with flik2:
                             <script>
                             function printRecipe() {{
                                 const win = window.open('', '_blank');
-                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>@page {{ margin: 15mm; }} body {{ font-family: sans-serif; padding: 0; color: #111; line-height: 1.4; }} h2 {{ margin-bottom: 2px; font-size: 20px; }} p {{ color: #555; margin-top: 4px; }} hr {{ border: 0; border-top: 1px solid #ccc; margin: 15px 0; }} table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }} th, td {{ border: 1px solid #ddd; padding: 6px 10px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
+                                if (!win) {{
+                                    alert('Tillåt popups i webbläsaren för att skriva ut.');
+                                    return;
+                                }}
+                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>@page {{ margin: 15mm; }} body {{ font-family: sans-serif; padding: 20px; color: #111; line-height: 1.4; }} h2 {{ margin-bottom: 2px; font-size: 20px; }} p {{ color: #555; margin-top: 4px; }} hr {{ border: 0; border-top: 1px solid #ccc; margin: 15px 0; }} table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }} th, td {{ border: 1px solid #ddd; padding: 6px 10px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
                                 win.document.write('<h2>{titel}</h2>');
                                 win.document.write('<p><em>Kategori: {kategori}</em></p>');
                                 win.document.write('<hr/>');
@@ -328,18 +331,6 @@ with flik2:
                                 setTimeout(() => {{
                                     win.print();
                                     win.close();
-                                }}, 500);
-
-                                const checkClosed = setInterval(() => {{
-                                    if (win.closed) {{
-                                        clearInterval(checkClosed);
-                                    }} else {{
-                                        win.onfocus = () => {{
-                                            setTimeout(() => {{
-                                                if(!win.closed) win.close();
-                                            }}, 1000);
-                                        }};
-                                    }}
                                 }}, 500);
                             }}
 
@@ -452,9 +443,8 @@ with flik3:
                         <head>
                         <meta charset="utf-8">
                         <style>
-                          @page {{ size: auto; margin: 15mm; }}
-                          body {{ margin: 0; font-family: sans-serif; background-color: transparent; color: #111; line-height: 1.4; }}
-                          .btn-container {{ display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }}
+                          body {{ margin: 0; font-family: sans-serif; background-color: transparent; }}
+                          .btn-container {{ display: flex; gap: 8px; flex-wrap: wrap; }}
                           button {{
                               background-color: #ff4b4b;
                               color: white;
@@ -480,7 +470,11 @@ with flik3:
                             <script>
                             function printRecipe() {{
                                 const win = window.open('', '_blank');
-                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>@page {{ margin: 15mm; }} body {{ font-family: sans-serif; padding: 0; color: #111; line-height: 1.4; }} h2 {{ margin-bottom: 2px; font-size: 20px; }} p {{ color: #555; margin-top: 4px; }} hr {{ border: 0; border-top: 1px solid #ccc; margin: 15px 0; }} table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }} th, td {{ border: 1px solid #ddd; padding: 6px 10px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
+                                if (!win) {{
+                                    alert('Tillåt popups i webbläsaren för att skriva ut.');
+                                    return;
+                                }}
+                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>@page {{ margin: 15mm; }} body {{ font-family: sans-serif; padding: 20px; color: #111; line-height: 1.4; }} h2 {{ margin-bottom: 2px; font-size: 20px; }} p {{ color: #555; margin-top: 4px; }} hr {{ border: 0; border-top: 1px solid #ccc; margin: 15px 0; }} table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }} th, td {{ border: 1px solid #ddd; padding: 6px 10px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
                                 win.document.write('<h2>{titel}</h2>');
                                 win.document.write('<p><em>Kategori: {kategori}</em></p>');
                                 win.document.write('<hr/>');
@@ -493,18 +487,6 @@ with flik3:
                                 setTimeout(() => {{
                                     win.print();
                                     win.close();
-                                }}, 500);
-
-                                const checkClosed = setInterval(() => {{
-                                    if (win.closed) {{
-                                        clearInterval(checkClosed);
-                                    }} else {{
-                                        win.onfocus = () => {{
-                                            setTimeout(() => {{
-                                                if(!win.closed) win.close();
-                                            }}, 1000);
-                                        }};
-                                    }}
                                 }}, 500);
                             }}
 
