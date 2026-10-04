@@ -16,7 +16,7 @@ gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY
 client = genai.Client(api_key=gemini_api_key)
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.20"
+VERSION = "v1.21"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
@@ -26,13 +26,10 @@ if "user" not in st.session_state:
 if not st.session_state["user"]:
     st.subheader("🔑 Logga in")
     
-    # Förifyllt lösenord via session state eller standardvärde
-    if "input_pass" not in st.session_state:
-        st.session_state["input_pass"] = ""
-
     with st.form("login_form"):
-        email = st.text_input("E-post", value="thomas@diplomatsystem.se", key="login_email")
-        password = st.text_input("Lösenord", value=st.session_state["input_pass"], type="password", key="login_pass_input")
+        # Använder fasta nycklar och tvingar e-posten att alltid vara din
+        email = st.text_input("E-post", value="thomas@diplomatsystem.se", key="unique_login_email", autocomplete="username")
+        password = st.text_input("Lösenord", value="", type="password", key="unique_login_pass", autocomplete="new-password")
         
         col1, col2 = st.columns(2)
         with col1:
