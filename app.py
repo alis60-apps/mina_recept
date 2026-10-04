@@ -18,8 +18,11 @@ gemini_api_key = st.secrets.get(
 )
 client = genai.Client(api_key=gemini_api_key)
 
+# HÄR STYR DU MODELLEN TILL 3.8-FLASH ENLIGT FELMEDDELANDET:
+GEMINI_MODEL = "gemini-3.8-flash"
+
 # --- VERSIONSHANTERING ---
-VERSION = "v1.32"
+VERSION = "v1.35"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
@@ -123,8 +126,9 @@ with flik1:
               "Svara ENDAST med giltig JSON utan markdown-kodblock."
           )
 
+          # Använder den uppdaterade modellen här
           response = client.models.generate_content(
-              model="gemini-2.5-flash", contents=[bild, prompt]
+              model=GEMINI_MODEL, contents=[bild, prompt]
           )
 
           raw_text = response.text.strip()
@@ -138,7 +142,10 @@ with flik1:
           st.success("Receptet har analyserats!")
 
         except Exception as e:
-          st.error(f"Ett fel uppstod vid anropet till Gemini: {e}")
+          st.error(
+              f"Ett fel uppstod vid anropet till Gemini (modell:"
+              f" {GEMINI_MODEL}): {e}"
+          )
 
     if "analyserat_recept" in st.session_state:
       rec = st.session_state["analyserat_recept"]
@@ -177,7 +184,7 @@ with flik1:
               "🌾 Fiber",
               "🧂 Salt",
               "🍊 C-vitamin",
-              "☀️ D-vitamin",
+              "☀ D-vitamin",
               "🧲 Järn",
           ],
           "Per 100 g": [
@@ -328,13 +335,11 @@ with flik2:
       st.info("Inga sparade recept hittades.")
     else:
       for r in recept_lista:
-        # Fallback till gamla kolumnnamn om det finns äldre rader kvar
         titel = r.get("title") or r.get("titel") or "Namnlöst recept"
         kategori = r.get("category") or r.get("kategori") or "Övrigt"
         ingredients = r.get("ingredients") or ""
         instructions = r.get("instructions") or ""
-        
-        # Om tabellen innehåller gammal sammanslagen text men saknar nya kolumner
+
         if not ingredients and not instructions and r.get("text"):
           ingredients = r.get("text")
 
@@ -409,7 +414,6 @@ with flik2:
               st.markdown("### 👨‍🍳 Tillagning")
               st.markdown(instructions)
 
-              # Dynamisk visning av näringstabellen från JSON-datan
               if nutrition_dict and isinstance(nutrition_dict, dict):
                 p_data = nutrition_dict.get("per_portion", {})
                 h_data = nutrition_dict.get("per_100g", {})
