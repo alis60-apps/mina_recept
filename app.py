@@ -194,7 +194,7 @@ with flik1:
 with flik2:
     st.header("Mina sparade recept")
     
-    with st.expander("⚙️ Inställningar för delning"):
+    with st.expander("⚙️️ Inställningar för delning"):
         nuvarande_status = False
         try:
             user_check = supabase.table("recept").select("is_public").eq("user_id", st.session_state["user"].id).limit(1).execute()
@@ -227,17 +227,23 @@ with flik2:
                 kategori = r.get("kategori") or "Övrigt"
                 bild_url = r.get("bild_url") or r.get("image_url")
                 
-                if sokord.lower() in str(titel).lower() or sokord.lower() in str(r.get("text", "")).lower():
+                # Rensa bort gamla HTML-tecken (&nbsp;) från texten vid visning
+                recept_text = (r.get("text", "")
+                               .replace("&nbsp;", " ")
+                               .replace("Â", "")
+                               .replace("â", ""))
+                
+                if sokord.lower() in str(titel).lower() or sokord.lower() in str(recept_text).lower():
                     with st.expander(f"📌 {titel} ({kategori})"):
                         if bild_url:
                             st.image(bild_url, width=250)
                             
-                        st.markdown(r.get("text", ""), unsafe_allow_html=True)
+                        st.markdown(recept_text, unsafe_allow_html=True)
                         
                         st.divider()
                         
                         recept_id = r.get('id')
-                        recept_innehall = f"Recept: {titel} ({kategori})\n\n{r.get('text', '')}"
+                        recept_innehall = f"Recept: {titel} ({kategori})\n\n{recept_text}"
                         safe_text = json.dumps(recept_innehall)
                         
                         print_html = f"""
@@ -273,15 +279,19 @@ with flik2:
                             <script>
                             function printRecipe() {{
                                 const win = window.open('', '_blank');
-                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }}</style></head><body>');
+                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }} th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
                                 win.document.write('<h2>{titel}</h2>');
                                 win.document.write('<p><em>Kategori: {kategori}</em></p>');
                                 win.document.write('<hr/>');
-                                win.document.write('<div style="white-space: pre-line;">{r.get("text", "").replace(chr(92), chr(92)*2).replace("'", "\\'").replace(chr(10), "<br>")}</div>');
+                                win.document.write('<div>{recept_text.replace(chr(92), chr(92)*2).replace("'", "\\'").replace(chr(10), "<br>")}</div>');
                                 win.document.write('</body></html>');
                                 win.document.close();
                                 win.focus();
-                                setTimeout(() => {{ win.print(); }}, 300);
+                                
+                                setTimeout(() => {{
+                                    win.print();
+                                    win.close();
+                                }}, 400);
                             }}
 
                             function copyRecipe() {{
@@ -339,12 +349,17 @@ with flik3:
                     kategori = r.get("kategori") or "Övrigt"
                     recept_id = r.get('id')
                     
+                    recept_text_d = (r.get("text", "")
+                                     .replace("&nbsp;", " ")
+                                     .replace("Â", "")
+                                     .replace("â", ""))
+                    
                     with st.expander(f"📌 {titel} ({kategori})"):
-                        st.markdown(r.get("text", ""), unsafe_allow_html=True)
+                        st.markdown(recept_text_d, unsafe_allow_html=True)
                         
                         st.divider()
                         
-                        recept_innehall_d = f"Recept: {titel} ({kategori})\n\n{r.get('text', '')}"
+                        recept_innehall_d = f"Recept: {titel} ({kategori})\n\n{recept_text_d}"
                         safe_text_d = json.dumps(recept_innehall_d)
                         
                         print_html_d = f"""
@@ -380,15 +395,19 @@ with flik3:
                             <script>
                             function printRecipe() {{
                                 const win = window.open('', '_blank');
-                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }}</style></head><body>');
+                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }} th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
                                 win.document.write('<h2>{titel}</h2>');
                                 win.document.write('<p><em>Kategori: {kategori}</em></p>');
                                 win.document.write('<hr/>');
-                                win.document.write('<div style="white-space: pre-line;">{r.get("text", "").replace(chr(92), chr(92)*2).replace("'", "\\'").replace(chr(10), "<br>")}</div>');
+                                win.document.write('<div>{recept_text_d.replace(chr(92), chr(92)*2).replace("'", "\\'").replace(chr(10), "<br>")}</div>');
                                 win.document.write('</body></html>');
                                 win.document.close();
                                 win.focus();
-                                setTimeout(() => {{ win.print(); }}, 300);
+                                
+                                setTimeout(() => {{
+                                    win.print();
+                                    win.close();
+                                }}, 400);
                             }}
 
                             function copyRecipe() {{
