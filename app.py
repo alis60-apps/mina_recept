@@ -16,7 +16,7 @@ gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY
 client = genai.Client(api_key=gemini_api_key)
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.13"
+VERSION = "v1.14"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
@@ -298,11 +298,24 @@ with flik2:
                             recept_innehall = f"Recept: {titel} ({kategori})\n\n{full_visnings_text}"
                             safe_text = json.dumps(recept_innehall)
                             
-                            print_html_content = recept_text_clean.replace(chr(92), chr(92)*2).replace("'", "\\'").replace(chr(10), "<br>")
+                            # Konvertera bort Markdown-tecken (###) till rena HTML-rubriker för utskriften
+                            print_prepared_text = (recept_text_clean
+                                .replace("### ", "<h3>")
+                                .replace("## ", "<h3>")
+                                .replace("# ", "<h3>")
+                            )
+                            # Eftersom vi ersatte öppnande taggen kan vi lägga till stängande </h3> vid radbrytningar eller helt enkelt låta h3 fungera
+                            # Ett säkrare sätt är att ersätta kända rubriker direkt eller konvertera radbrytningar
+                            print_html_content = (print_prepared_text
+                                .replace(chr(92), chr(92)*2)
+                                .replace("'", "\\'")
+                                .replace(chr(10), "<br>")
+                            )
                             
                             narings_html_print = ""
                             if narings_del:
-                                naring_lines = narings_del.split("\n")
+                                cleaned_naring_del = narings_del.replace("### ", "")
+                                naring_lines = cleaned_naring_del.split("\n")
                                 table_rows = []
                                 for line in naring_lines:
                                     if "|" in line and "---" not in line:
@@ -310,7 +323,7 @@ with flik2:
                                         if cols:
                                             table_rows.append(cols)
                                 if table_rows:
-                                    narings_html_print += "<h3>📊 Näringsinnehåll</h3><table>"
+                                    narings_html_print += "<h3 style='margin-top:20px; font-size:16px;'>📊 Näringsinnehåll</h3><table>"
                                     for i, row in enumerate(table_rows):
                                         tag = "th" if i == 0 else "td"
                                         narings_html_print += "<tr>"
@@ -356,7 +369,7 @@ with flik2:
                                         alert('Tillåt popups i webbläsaren för att skriva ut.');
                                         return;
                                     }}
-                                    win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} h3 {{ margin-top: 20px; font-size: 16px; }} table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }} th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
+                                    win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} h3 {{ margin-top: 20px; font-size: 16px; font-weight: bold; }} table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }} th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
                                     win.document.write('<h2>{titel}</h2>');
                                     win.document.write('<p><em>Kategori: {kategori}</em></p>');
                                     win.document.write('<hr/>');
@@ -452,11 +465,21 @@ with flik3:
                         recept_innehall_d = f"Recept: {titel} ({kategori})\n\n{full_visnings_text_d}"
                         safe_text_d = json.dumps(recept_innehall_d)
                         
-                        print_html_content_d = recept_text_clean_d.replace(chr(92), chr(92)*2).replace("'", "\\'").replace(chr(10), "<br>")
+                        print_prepared_text_d = (recept_text_clean_d
+                            .replace("### ", "<h3>")
+                            .replace("## ", "<h3>")
+                            .replace("# ", "<h3>")
+                        )
+                        print_html_content_d = (print_prepared_text_d
+                            .replace(chr(92), chr(92)*2)
+                            .replace("'", "\\'")
+                            .replace(chr(10), "<br>")
+                        )
                         
                         narings_html_print_d = ""
                         if narings_del_d:
-                            naring_lines_d = narings_del_d.split("\n")
+                            cleaned_naring_del_d = narings_del_d.replace("### ", "")
+                            naring_lines_d = cleaned_naring_del_d.split("\n")
                             table_rows_d = []
                             for line in naring_lines_d:
                                 if "|" in line and "---" not in line:
@@ -464,7 +487,7 @@ with flik3:
                                     if cols:
                                         table_rows_d.append(cols)
                             if table_rows_d:
-                                narings_html_print_d += "<h3>📊 Näringsinnehåll</h3><table>"
+                                narings_html_print_d += "<h3 style='margin-top:20px; font-size:16px;'>📊 Näringsinnehåll</h3><table>"
                                 for i, row in enumerate(table_rows_d):
                                     tag = "th" if i == 0 else "td"
                                     narings_html_print_d += "<tr>"
@@ -510,7 +533,7 @@ with flik3:
                                     alert('Tillåt popups i webbläsaren för att skriva ut.');
                                     return;
                                 }}
-                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} h3 {{ margin-top: 20px; font-size: 16px; }} table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }} th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
+                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} h3 {{ margin-top: 20px; font-size: 16px; font-weight: bold; }} table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }} th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
                                 win.document.write('<h2>{titel}</h2>');
                                 win.document.write('<p><em>Kategori: {kategori}</em></p>');
                                 win.document.write('<hr/>');
