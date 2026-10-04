@@ -229,12 +229,11 @@ with flik2:
                 
                 raw_db_text = r.get("text", "")
                 
-                # Rensa bort skräptecken och HTML-koder
+                # Rensa bort skräptecken, HTML-koder och non-breaking spaces
                 clean_text = (raw_db_text
                               .replace("&nbsp;", " ")
                               .replace("Â", "")
-                              .replace("â", "")
-                              .replace("", ""))
+                              .replace("â", ""))
                 
                 if "### 📊 Näringsinnehåll" in clean_text:
                     delar = clean_text.split("### 📊 Näringsinnehåll")
@@ -261,6 +260,26 @@ with flik2:
                         safe_text = json.dumps(recept_innehall)
                         
                         print_html_content = recept_text_clean.replace(chr(92), chr(92)*2).replace("'", "\\'").replace(chr(10), "<br>")
+                        
+                        # Bygg snygg HTML-tabell för utskrift av näringsinnehåll
+                        narings_html_print = ""
+                        if narings_del:
+                            naring_lines = narings_del.split("\n")
+                            table_rows = []
+                            for line in naring_lines:
+                                if "|" in line and "---" not in line:
+                                    cols = [c.strip() for c in line.split("|") if c.strip() != ""]
+                                    if cols:
+                                        table_rows.append(cols)
+                            if table_rows:
+                                narings_html_print += "<h3>📊 Näringsinnehåll</h3><table>"
+                                for i, row in enumerate(table_rows):
+                                    tag = "th" if i == 0 else "td"
+                                    narings_html_print += "<tr>"
+                                    for col in row:
+                                        narings_html_print += f"<{tag}>{col}</{tag}>"
+                                    narings_html_print += "</tr>"
+                                narings_html_print += "</table>"
                         
                         print_html = f"""
                         <!DOCTYPE html>
@@ -300,7 +319,7 @@ with flik2:
                                 win.document.write('<p><em>Kategori: {kategori}</em></p>');
                                 win.document.write('<hr/>');
                                 win.document.write('<div>{print_html_content}</div>');
-                                
+                                win.document.write('{narings_html_print}');
                                 win.document.write('</body></html>');
                                 win.document.close();
                                 win.focus();
@@ -310,7 +329,6 @@ with flik2:
                                     win.close();
                                 }}, 500);
 
-                                // Stäng ner fliken automatiskt om användaren avbryter/stänger utskriftsdialogen
                                 const checkClosed = setInterval(() => {{
                                     if (win.closed) {{
                                         clearInterval(checkClosed);
@@ -383,8 +401,7 @@ with flik3:
                     clean_text_d = (raw_db_text_d
                                     .replace("&nbsp;", " ")
                                     .replace("Â", "")
-                                    .replace("â", "")
-                                    .replace("", ""))
+                                    .replace("â", ""))
                     
                     if "### 📊 Näringsinnehåll" in clean_text_d:
                         delar_d = clean_text_d.split("### 📊 Näringsinnehåll")
@@ -406,6 +423,25 @@ with flik3:
                         safe_text_d = json.dumps(recept_innehall_d)
                         
                         print_html_content_d = recept_text_clean_d.replace(chr(92), chr(92)*2).replace("'", "\\'").replace(chr(10), "<br>")
+                        
+                        narings_html_print_d = ""
+                        if narings_del_d:
+                            naring_lines_d = narings_del_d.split("\n")
+                            table_rows_d = []
+                            for line in naring_lines_d:
+                                if "|" in line and "---" not in line:
+                                    cols = [c.strip() for c in line.split("|") if c.strip() != ""]
+                                    if cols:
+                                        table_rows_d.append(cols)
+                            if table_rows_d:
+                                narings_html_print_d += "<h3>📊 Näringsinnehåll</h3><table>"
+                                for i, row in enumerate(table_rows_d):
+                                    tag = "th" if i == 0 else "td"
+                                    narings_html_print_d += "<tr>"
+                                    for col in row:
+                                        narings_html_print_d += f"<{tag}>{col}</{tag}>"
+                                    narings_html_print_d += "</tr>"
+                                narings_html_print_d += "</table>"
                         
                         print_html_d = f"""
                         <!DOCTYPE html>
@@ -445,6 +481,7 @@ with flik3:
                                 win.document.write('<p><em>Kategori: {kategori}</em></p>');
                                 win.document.write('<hr/>');
                                 win.document.write('<div>{print_html_content_d}</div>');
+                                win.document.write('{narings_html_print_d}');
                                 win.document.write('</body></html>');
                                 win.document.close();
                                 win.focus();
