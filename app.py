@@ -194,7 +194,7 @@ with flik1:
 with flik2:
     st.header("Mina sparade recept")
     
-    with st.expander("⚙️️ Inställningar för delning"):
+    with st.expander("⚙ Inställningar för delning"):
         nuvarande_status = False
         try:
             user_check = supabase.table("recept").select("is_public").eq("user_id", st.session_state["user"].id).limit(1).execute()
@@ -227,24 +227,43 @@ with flik2:
                 kategori = r.get("kategori") or "Övrigt"
                 bild_url = r.get("bild_url") or r.get("image_url")
                 
-                # Rensa bort gamla HTML-tecken (&nbsp;) från texten vid visning
-                recept_text = (r.get("text", "")
-                               .replace("&nbsp;", " ")
-                               .replace("Â", "")
-                               .replace("â", ""))
+                raw_db_text = r.get("text", "")
                 
-                if sokord.lower() in str(titel).lower() or sokord.lower() in str(recept_text).lower():
+                # Dela upp brödtext och näringsinnehåll om tabellen finns sparad i texten
+                if "### 📊 Näringsinnehåll" in raw_db_text:
+                    delar = raw_db_text.split("### 📊 Näringsinnehåll")
+                    recept_text_clean = (delar[0]
+                                         .replace("&nbsp;", " ")
+                                         .replace("Â", "")
+                                         .replace("â", "")
+                                         .strip())
+                    narings_del = delar[1]
+                else:
+                    recept_text_clean = (raw_db_text
+                                         .replace("&nbsp;", " ")
+                                         .replace("Â", "")
+                                         .replace("â", "")
+                                         .strip())
+                    narings_del = ""
+                
+                if sokord.lower() in str(titel).lower() or sokord.lower() in str(recept_text_clean).lower():
                     with st.expander(f"📌 {titel} ({kategori})"):
                         if bild_url:
                             st.image(bild_url, width=250)
                             
-                        st.markdown(recept_text, unsafe_allow_html=True)
+                        st.markdown(recept_text_clean, unsafe_allow_html=True)
+                        if narings_del:
+                            st.markdown("### 📊 Näringsinnehåll" + narings_del)
                         
                         st.divider()
                         
                         recept_id = r.get('id')
-                        recept_innehall = f"Recept: {titel} ({kategori})\n\n{recept_text}"
+                        full_visnings_text = f"{recept_text_clean}\n\n### 📊 Näringsinnehåll{narings_del}" if narings_del else recept_text_clean
+                        recept_innehall = f"Recept: {titel} ({kategori})\n\n{full_visnings_text}"
                         safe_text = json.dumps(recept_innehall)
+                        
+                        # Förbered ren HTML för utskriften utan skräptecken
+                        print_html_content = recept_text_clean.replace(chr(92), chr(92)*2).replace("'", "\\'").replace(chr(10), "<br>")
                         
                         print_html = f"""
                         <!DOCTYPE html>
@@ -283,7 +302,22 @@ with flik2:
                                 win.document.write('<h2>{titel}</h2>');
                                 win.document.write('<p><em>Kategori: {kategori}</em></p>');
                                 win.document.write('<hr/>');
-                                win.document.write('<div>{recept_text.replace(chr(92), chr(92)*2).replace("'", "\\'").replace(chr(10), "<br>")}</div>');
+                                win.document.write('<div>{print_html_content}</div>');
+                                
+                                // Snygg och ren tabell för utskrift om näring finns
+                                const naringsDelText = `{narings_del.replace(chr(92), chr(92)*2).replace("'", "\\'").replace(chr(10), " ")}}`;
+                                if (naringsDelText.trim() !== '') {{
+                                    win.document.write('<h3>📊 Näringsinnehåll</h3>');
+                                    win.document.write('<table>');
+                                    win.document.write('<tr><th>Näringsämne (Makros)</th><th>Per 100 g</th><th>Per Portion</th></tr>');
+                                    
+                                    const rader = [
+                                        ["⚡ Energi", "{h_data.get('energi', '-') if 'h_data' in locals() else '-'}", "{p_data.get('energi', '-') if 'p_data' in locals() else '-'}"]
+                                    ];
+                                    // Bygg utskriftsvänliga rader
+                                    win.document.write('</table>');
+                                }}
+
                                 win.document.write('</body></html>');
                                 win.document.close();
                                 win.focus();
@@ -291,7 +325,21 @@ with flik2:
                                 setTimeout(() => {{
                                     win.print();
                                     win.close();
-                                }}, 400);
+                                }}, 500);
+
+                                // Stäng ner fliken automatiskt om användaren avbryter/stänger utskriftsdialogen
+                                const checkClosed = setInterval(() => {{
+                                    if (win.closed) {{
+                                        clearInterval(checkClosed);
+                                    }} else {{
+                                        // Om fönstret tappar fokus efter utskrift/avbryt, stäng det
+                                        win.onfocus = () => {{
+                                            setTimeout(() => {{
+                                                if(!win.closed) win.close();
+                                            }}, 1000);
+                                        }};
+                                    }}
+                                }}, 500);
                             }}
 
                             function copyRecipe() {{
@@ -349,18 +397,35 @@ with flik3:
                     kategori = r.get("kategori") or "Övrigt"
                     recept_id = r.get('id')
                     
-                    recept_text_d = (r.get("text", "")
-                                     .replace("&nbsp;", " ")
-                                     .replace("Â", "")
-                                     .replace("â", ""))
+                    raw_db_text_d = r.get("text", "")
+                    if "### 📊 Näringsinnehåll" in raw_db_text_d:
+                        delar_d = raw_db_text_d.split("### 📊 Näringsinnehåll")
+                        recept_text_clean_d = (delar_d[0]
+                                             .replace("&nbsp;", " ")
+                                             .replace("Â", "")
+                                             .replace("â", "")
+                                             .strip())
+                        narings_del_d = delar_d[1]
+                    else:
+                        recept_text_clean_d = (raw_db_text_d
+                                             .replace("&nbsp;", " ")
+                                             .replace("Â", "")
+                                             .replace("â", "")
+                                             .strip())
+                        narings_del_d = ""
                     
                     with st.expander(f"📌 {titel} ({kategori})"):
-                        st.markdown(recept_text_d, unsafe_allow_html=True)
+                        st.markdown(recept_text_clean_d, unsafe_allow_html=True)
+                        if narings_del_d:
+                            st.markdown("### 📊 Näringsinnehåll" + narings_del_d)
                         
                         st.divider()
                         
-                        recept_innehall_d = f"Recept: {titel} ({kategori})\n\n{recept_text_d}"
+                        full_visnings_text_d = f"{recept_text_clean_d}\n\n### 📊 Näringsinnehåll{narings_del_d}" if narings_del_d else recept_text_clean_d
+                        recept_innehall_d = f"Recept: {titel} ({kategori})\n\n{full_visnings_text_d}"
                         safe_text_d = json.dumps(recept_innehall_d)
+                        
+                        print_html_content_d = recept_text_clean_d.replace(chr(92), chr(92)*2).replace("'", "\\'").replace(chr(10), "<br>")
                         
                         print_html_d = f"""
                         <!DOCTYPE html>
@@ -399,7 +464,7 @@ with flik3:
                                 win.document.write('<h2>{titel}</h2>');
                                 win.document.write('<p><em>Kategori: {kategori}</em></p>');
                                 win.document.write('<hr/>');
-                                win.document.write('<div>{recept_text_d.replace(chr(92), chr(92)*2).replace("'", "\\'").replace(chr(10), "<br>")}</div>');
+                                win.document.write('<div>{print_html_content_d}</div>');
                                 win.document.write('</body></html>');
                                 win.document.close();
                                 win.focus();
@@ -407,7 +472,19 @@ with flik3:
                                 setTimeout(() => {{
                                     win.print();
                                     win.close();
-                                }}, 400);
+                                }}, 500);
+
+                                const checkClosed = setInterval(() => {{
+                                    if (win.closed) {{
+                                        clearInterval(checkClosed);
+                                    }} else {{
+                                        win.onfocus = () => {{
+                                            setTimeout(() => {{
+                                                if(!win.closed) win.close();
+                                            }}, 1000);
+                                        }};
+                                    }}
+                                }}, 500);
                             }}
 
                             function copyRecipe() {{
