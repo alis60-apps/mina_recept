@@ -270,7 +270,7 @@ with flik2:
                                     if cols:
                                         table_rows.append(cols)
                             if table_rows:
-                                narings_html_print += "<h3 style='margin-top:15px; font-size:15px;'>📊 Näringsinnehåll</h3><table>"
+                                narings_html_print += "<h3>📊 Näringsinnehåll</h3><table>"
                                 for i, row in enumerate(table_rows):
                                     tag = "th" if i == 0 else "td"
                                     narings_html_print += "<tr>"
@@ -316,7 +316,7 @@ with flik2:
                                     alert('Tillåt popups i webbläsaren för att skriva ut.');
                                     return;
                                 }}
-                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>@page {{ size: auto; margin: 10mm; }} body {{ font-family: sans-serif; padding: 10px; color: #111; line-height: 1.3; max-height: 100vh; page-break-after: avoid; }} h2 {{ margin-bottom: 2px; font-size: 18px; }} p {{ color: #555; margin-top: 2px; }} hr {{ border: 0; border-top: 1px solid #ccc; margin: 10px 0; }} table {{ width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; page-break-inside: avoid; }} th, td {{ border: 1px solid #ddd; padding: 5px 8px; text-align: left; }} th {{ background-color: #f4f4f4; }} * {{ page-break-after: avoid; page-break-inside: avoid; }}</style></head><body>');
+                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }} th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
                                 win.document.write('<h2>{titel}</h2>');
                                 win.document.write('<p><em>Kategori: {kategori}</em></p>');
                                 win.document.write('<hr/>');
@@ -424,7 +424,7 @@ with flik3:
                                     if cols:
                                         table_rows_d.append(cols)
                             if table_rows_d:
-                                narings_html_print_d += "<h3 style='margin-top:15px; font-size:15px;'>📊 Näringsinnehåll</h3><table>"
+                                narings_html_print_d += "<h3>📊 Näringsinnehåll</h3><table>"
                                 for i, row in enumerate(table_rows_d):
                                     tag = "th" if i == 0 else "td"
                                     narings_html_print_d += "<tr>"
@@ -470,7 +470,7 @@ with flik3:
                                     alert('Tillåt popups i webbläsaren för att skriva ut.');
                                     return;
                                 }}
-                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>@page {{ size: auto; margin: 10mm; }} body {{ font-family: sans-serif; padding: 10px; color: #111; line-height: 1.3; max-height: 100vh; page-break-after: avoid; }} h2 {{ margin-bottom: 2px; font-size: 18px; }} p {{ color: #555; margin-top: 2px; }} hr {{ border: 0; border-top: 1px solid #ccc; margin: 10px 0; }} table {{ width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; page-break-inside: avoid; }} th, td {{ border: 1px solid #ddd; padding: 5px 8px; text-align: left; }} th {{ background-color: #f4f4f4; }} * {{ page-break-after: avoid; page-break-inside: avoid; }}</style></head><body>');
+                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }} th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
                                 win.document.write('<h2>{titel}</h2>');
                                 win.document.write('<p><em>Kategori: {kategori}</em></p>');
                                 win.document.write('<hr/>');
