@@ -261,14 +261,6 @@ with flik2:
                           }}
                           button:hover {{ background-color: #ff2b2b; }}
                           #status {{ font-size: 13px; color: #666; align-self: center; }}
-
-                          .print-only {{ display: none; }}
-
-                          @media print {{
-                              body {{ background: white; color: black; font-size: 15px; padding: 20px; }}
-                              .btn-container {{ display: none !important; }}
-                              .print-only {{ display: block !important; }}
-                          }}
                         </style>
                         </head>
                         <body>
@@ -278,16 +270,18 @@ with flik2:
                                 <span id="status"></span>
                             </div>
 
-                            <div class="print-only">
-                              <h2>{titel}</h2>
-                              <p><em>Kategori: {kategori}</em></p>
-                              <hr style="border:0; border-top:1px solid #ccc; margin: 15px 0;"/>
-                              <div style="white-space: pre-line;">{r.get('text', '')}</div>
-                            </div>
-
                             <script>
                             function printRecipe() {{
-                                window.print();
+                                const win = window.open('', '_blank');
+                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }}</style></head><body>');
+                                win.document.write('<h2>{titel}</h2>');
+                                win.document.write('<p><em>Kategori: {kategori}</em></p>');
+                                win.document.write('<hr/>');
+                                win.document.write('<div style="white-space: pre-line;">{r.get("text", "").replace(chr(92), chr(92)*2).replace("'", "\\'").replace(chr(10), "<br>")}</div>');
+                                win.document.write('</body></html>');
+                                win.document.close();
+                                win.focus();
+                                setTimeout(() => {{ win.print(); }}, 300);
                             }}
 
                             function copyRecipe() {{
@@ -302,7 +296,7 @@ with flik2:
                         </body>
                         </html>
                         """
-                        components.html(print_html, height=55)
+                        components.html(print_html, height=45)
                         
                         if st.button("🗑️ Radera recept", key=f"del_{recept_id}"):
                             supabase.table("recept").delete().eq("id", recept_id).execute()
@@ -374,14 +368,6 @@ with flik3:
                           }}
                           button:hover {{ background-color: #ff2b2b; }}
                           #status {{ font-size: 13px; color: #666; align-self: center; }}
-
-                          .print-only {{ display: none; }}
-
-                          @media print {{
-                              body {{ background: white; color: black; font-size: 15px; padding: 20px; }}
-                              .btn-container {{ display: none !important; }}
-                              .print-only {{ display: block !important; }}
-                          }}
                         </style>
                         </head>
                         <body>
@@ -391,16 +377,18 @@ with flik3:
                                 <span id="status"></span>
                             </div>
 
-                            <div class="print-only">
-                              <h2>{titel}</h2>
-                              <p><em>Kategori: {kategori}</em></p>
-                              <hr style="border:0; border-top:1px solid #ccc; margin: 15px 0;"/>
-                              <div style="white-space: pre-line;">{r.get('text', '')}</div>
-                            </div>
-
                             <script>
                             function printRecipe() {{
-                                window.print();
+                                const win = window.open('', '_blank');
+                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }}</style></head><body>');
+                                win.document.write('<h2>{titel}</h2>');
+                                win.document.write('<p><em>Kategori: {kategori}</em></p>');
+                                win.document.write('<hr/>');
+                                win.document.write('<div style="white-space: pre-line;">{r.get("text", "").replace(chr(92), chr(92)*2).replace("'", "\\'").replace(chr(10), "<br>")}</div>');
+                                win.document.write('</body></html>');
+                                win.document.close();
+                                win.focus();
+                                setTimeout(() => {{ win.print(); }}, 300);
                             }}
 
                             function copyRecipe() {{
@@ -415,7 +403,7 @@ with flik3:
                         </body>
                         </html>
                         """
-                        components.html(print_html_d, height=55)
+                        components.html(print_html_d, height=45)
                                 
     except Exception as e:
         st.error(f"Kunde inte hämta delade recept: {e}")
