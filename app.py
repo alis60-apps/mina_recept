@@ -16,7 +16,7 @@ gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY
 client = genai.Client(api_key=gemini_api_key)
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.25"
+VERSION = "v1.26"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
@@ -26,31 +26,32 @@ if "user" not in st.session_state:
 if not st.session_state["user"]:
     st.subheader("🔑 Logga in")
     
-    # Utanför st.form för att webbläsarens lösenordshanterare lättare ska hitta fälten
-    email = st.text_input("E-post", key="login_email", autocomplete="username")
-    password = st.text_input("Lösenord", type="password", key="login_password", autocomplete="current-password")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        submit_login = st.button("Logga in")
-    with col2:
-        submit_signup = st.button("Skapa konto")
+    with st.form("login_form"):
+        # Med autocomplete-attribut hjälper det webbläsaren/lösenordshanteraren att känna igen fälten
+        email = st.text_input("E-post", key="login_email", autocomplete="username")
+        password = st.text_input("Lösenord", type="password", key="login_password", autocomplete="current-password")
         
-    if submit_login:
-        try:
-            auth_res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-            st.session_state["user"] = auth_res.user
-            st.success("Inloggad!")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Fel vid inloggning: {e}")
+        col1, col2 = st.columns(2)
+        with col1:
+            submit_login = st.form_submit_button("Logga in")
+        with col2:
+            submit_signup = st.form_submit_button("Skapa konto")
             
-    if submit_signup:
-        try:
-            auth_res = supabase.auth.sign_up({"email": email, "password": password})
-            st.info("Konto skapat! Om e-postbekräftelse krävs, kolla din inkorg.")
-        except Exception as e:
-            st.error(f"Kunde inte skapa konto: {e}")
+        if submit_login:
+            try:
+                auth_res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                st.session_state["user"] = auth_res.user
+                st.success("Inloggad!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Fel vid inloggning: {e}")
+                
+        if submit_signup:
+            try:
+                auth_res = supabase.auth.sign_up({"email": email, "password": password})
+                st.info("Konto skapat! Om e-postbekräftelse krävs, kolla din inkorg.")
+            except Exception as e:
+                st.error(f"Kunde inte skapa konto: {e}")
                 
     st.stop()
 
