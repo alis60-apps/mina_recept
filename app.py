@@ -1,7 +1,3 @@
-# coding=utf-8
-PRINT_ICON = "🖨️"
-SHARE_ICON = "📤"
-DELETE_ICON = "🗑️"
 import streamlit as st
 from google import genai
 from PIL import Image
@@ -10,8 +6,6 @@ import json
 import pandas as pd
 from supabase import create_client, Client
 import streamlit.components.v1 as components
-import html
-import base64
 
 # --- SUPABASE & GEMINI CONFIG ---
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL"))
@@ -21,48 +15,13 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY"))
 client = genai.Client(api_key=gemini_api_key)
 
-# --- MENY-FUNKTION ---
-def show_menu():
-    with st.sidebar:
-        st.markdown("### ⚙️ Inställningar")
-        
-        st.markdown(f"Inloggad som: **{st.session_state['user'].email}**")
-        
-        st.markdown("#### Delningsinställningar")
-        try:
-            user_check = supabase.table("recept").select("is_public").eq("user_id", st.session_state["user"].id).execute()
-            if user_check.data and len(user_check.data) > 0:
-                nuvarande_status = any(r.get("is_public", False) for r in user_check.data)
-            else:
-                nuvarande_status = False
-        except Exception as e:
-            st.error(f"Kunde inte läsa delningsstatus: {e}")
-            nuvarande_status = False
-
-        gör_publik = st.checkbox("🌍 Gör min receptbok publik", value=nuvarande_status)
-        
-        if st.button("Uppdatera delningsstatus"):
-            try:
-                supabase.table("recept").update({"is_public": gör_publik}).eq("user_id", st.session_state["user"].id).execute()
-                st.success("Delningsinställningen har sparats!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Kunde inte uppdatera delningsstatus: {e}")
-        
-        st.divider()
-        
-        if st.button("🚪 Logga ut"):
-            supabase.auth.sign_out()
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
+st.title("📖 Receptboken med AI-skanning")
 
 # --- INLOGGNINGSHANTERING ---
 if "user" not in st.session_state:
     st.session_state["user"] = None
 
 if not st.session_state["user"]:
-    st.title("📖 Receptboken med AI-skanning")
     st.subheader("🔑 Logga in")
     
     with st.form("login_form"):
@@ -93,31 +52,36 @@ if not st.session_state["user"]:
                 
     st.stop()
 
-# --- HUVUDAPP ---
-st.title("📖 Receptboken med AI-skanning")
-
-show_menu()
+# Status för inloggad användare
+col_user, col_logout = st.columns([3, 1])
+with col_user:
+    st.write(f"Inloggad som: **{st.session_state['user'].email}**")
+with col_logout:
+    if st.button("Logga ut"):
+        supabase.auth.sign_out()
+        st.session_state["user"] = None
+        st.rerun()
 
 st.divider()
 
 if "uploader_key" not in st.session_state:
     st.session_state["uploader_key"] = 0
 
+# --- HUVUDAPP (FLIKAR) ---
 flik1, flik2, flik3 = st.tabs(["📷 Skanna Recept", "📚 Mina Recept", "👥 Delade Böcker"])
 
 with flik1:
     st.header("Skanna handskrivet recept")
     
-    uppladdad_bild = st.file_uploader(
+    uppuploadad_bild = st.file_uploader(
         "Välj bild på recept...", 
         type=["jpg", "jpeg", "png"], 
         key=f"uploader_{st.session_state['uploader_key']}"
     )
     
-    if uppladdad_bild:
-        bild = Image.open(uppladdad_bild)
-        if bild.size[0] > 1500 or bild.size[1] > 1500:
-            bild.thumbnail((1500, 1500))
+    if uppuploadad_bild:
+        bild = Image.open(uppuploadad_bild)
+        bild.thumbnail((1000, 1000))
         st.image(bild, caption="Uppladdad bild (optimerad)", width=300)
         
         if st.button("Analysera recept med AI", key="btn_analysera"):
@@ -144,12 +108,9 @@ with flik1:
                     if raw_text.startswith("```json"):
                         raw_text = raw_text.replace("```json", "").replace("```", "").strip()
                     
-                    try:
-                        recept_data = json.loads(raw_text)
-                        st.session_state["analyserat_recept"] = recept_data
-                        st.success("Receptet har analyserats!")
-                    except json.JSONDecodeError:
-                        st.error("Kunde inte tolka AI-svaret. Försök igen med en tydligare bild.")
+                    recept_data = json.loads(raw_text)
+                    st.session_state["analyserat_recept"] = recept_data
+                    st.success("Receptet har analyserats!")
                     
                 except Exception as e:
                     st.error(f"Ett fel uppstod vid anropet till Gemini: {e}")
@@ -172,10 +133,10 @@ with flik1:
             h_data = naring_data.get("per_100g", {})
             
             df_naring = pd.DataFrame({
-                "Näringsämne": [
-                    "Energi (kcal)", "Protein (g)", "Kolhydrater (g)", 
-                    " - varav sockerarter (g)", "Fett (g)", " - varav mättat fett (g)", 
-                    "Fiber (g)", "Salt (g)"
+                "Näringsämne (Makros)": [
+                    "⚡ Energi", "🥩 Protein", "🍞 Kolhydrater", 
+                    "varav sockerarter", "🥑 Fett", "varav mättat fett", 
+                    "🌾 Fiber", "🧂 Salt"
                 ],
                 "Per 100 g": [
                     h_data.get("energi", "-"), h_data.get("protein", "-"), 
@@ -183,7 +144,7 @@ with flik1:
                     h_data.get("fett", "-"), h_data.get("mattat_fett", "-"), 
                     h_data.get("fiber", "-"), h_data.get("salt", "-")
                 ],
-                "Per portion": [
+                "Per Portion": [
                     p_data.get("energi", "-"), p_data.get("protein", "-"), 
                     p_data.get("kolhydrater", "-"), p_data.get("socker", "-"), 
                     p_data.get("fett", "-"), p_data.get("mattat_fett", "-"), 
@@ -196,40 +157,27 @@ with flik1:
             text_input = st.text_area("Recepttext (Ingredienser & Instruktioner)", value=rec.get("text", ""), height=220)
             
             if st.button("💾 Spara till databasen", key="btn_spara"):
-                # FIX: Spara näringsdata som HTML-tabell istället för markdown för att undvika teckenproblem
-                def safe_val(data, key):
-                    val = data.get(key)
-                    if val is None or val == "":
-                        return "-"
-                    return str(val)
+                naring_table_md = (
+                    "\n\n### 📊 Näringsinnehåll\n"
+                    "| Näringsämne (Makros) | Per 100 g | Per Portion |\n"
+                    "| :--- | :---: | :---: |\n"
+                    f"| ⚡ Energi | {h_data.get('energi', '-')} | {p_data.get('energi', '-')} |\n"
+                    f"| 🥩 Protein | {h_data.get('protein', '-')} | {p_data.get('protein', '-')} |\n"
+                    f"| 🍞 Kolhydrater | {h_data.get('kolhydrater', '-')} | {p_data.get('kolhydrater', '-')} |\n"
+                    f"| varav sockerarter | {h_data.get('socker', '-')} | {p_data.get('socker', '-')} |\n"
+                    f"| 🥑 Fett | {h_data.get('fett', '-')} | {p_data.get('fett', '-')} |\n"
+                    f"| varav mättat fett | {h_data.get('mattat_fett', '-')} | {p_data.get('mattat_fett', '-')} |\n"
+                    f"| 🌾 Fiber | {h_data.get('fiber', '-')} | {p_data.get('fiber', '-')} |\n"
+                    f"| 🧂 Salt | {h_data.get('salt', '-')} | {p_data.get('salt', '-')} |\n"
+                )
                 
-                naring_html = f"""
-                <h3>📊 Näringsinnehåll</h3>
-                <table style="border-collapse: collapse; width: 100%;">
-                    <tr style="background-color: #f2f2f2;">
-                        <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Näringsämne</th>
-                        <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">Per 100g</th>
-                        <th style="border: 1px solid #ddd; padding: 8px; text-align: center;">Per portion</th>
-                    </tr>
-                    <tr><td style="border: 1px solid #ddd; padding: 8px;">Energi (kcal)</td><td style="border: 1px solid #ddd; padding: 8px; text-align: center;">{safe_val(h_data, 'energi')}</td><td style="border: 1px solid #ddd; padding: 8px; text-align: center;">{safe_val(p_data, 'energi')}</td></tr>
-                    <tr><td style="border: 1px solid #ddd; padding: 8px;">Protein (g)</td><td style="border: 1px solid #ddd; padding: 8px; text-align: center;">{safe_val(h_data, 'protein')}</td><td style="border: 1px solid #ddd; padding: 8px; text-align: center;">{safe_val(p_data, 'protein')}</td></tr>
-                    <tr><td style="border: 1px solid #ddd; padding: 8px;">Kolhydrater (g)</td><td style="border: 1px solid #ddd; padding: 8px; text-align: center;">{safe_val(h_data, 'kolhydrater')}</td><td style="border: 1px solid #ddd; padding: 8px; text-align: center;">{safe_val(p_data, 'kolhydrater')}</td></tr>
-                    <tr><td style="border: 1px solid #ddd; padding: 8px;">&nbsp;&nbsp;- varav sockerarter (g)</td><td style="border: 1px solid #ddd; padding: 8px; text-align: center;">{safe_val(h_data, 'socker')}</td><td style="border: 1px solid #ddd; padding: 8px; text-align: center;">{safe_val(p_data, 'socker')}</td></tr>
-                    <tr><td style="border: 1px solid #ddd; padding: 8px;">Fett (g)</td><td style="border: 1px solid #ddd; padding: 8px; text-align: center;">{safe_val(h_data, 'fett')}</td><td style="border: 1px solid #ddd; padding: 8px; text-align: center;">{safe_val(p_data, 'fett')}</td></tr>
-                    <tr><td style="border: 1px solid #ddd; padding: 8px;">&nbsp;&nbsp;- varav mättat fett (g)</td><td style="border: 1px solid #ddd; padding: 8px; text-align: center;">{safe_val(h_data, 'mattat_fett')}</td><td style="border: 1px solid #ddd; padding: 8px; text-align: center;">{safe_val(p_data, 'mattat_fett')}</td></tr>
-                    <tr><td style="border: 1px solid #ddd; padding: 8px;">Fiber (g)</td><td style="border: 1px solid #ddd; padding: 8px; text-align: center;">{safe_val(h_data, 'fiber')}</td><td style="border: 1px solid #ddd; padding: 8px; text-align: center;">{safe_val(p_data, 'fiber')}</td></tr>
-                    <tr><td style="border: 1px solid #ddd; padding: 8px;">Salt (g)</td><td style="border: 1px solid #ddd; padding: 8px; text-align: center;">{safe_val(h_data, 'salt')}</td><td style="border: 1px solid #ddd; padding: 8px; text-align: center;">{safe_val(p_data, 'salt')}</td></tr>
-                </table>
-                """
-                
-                full_text = f"{text_input}\n\n{naring_html}"
+                full_text = f"{text_input}{naring_table_md}"
                 
                 data_att_spara = {
                     "user_id": st.session_state["user"].id,
                     "titel": titel_input,
                     "kategori": kategori_input,
-                    "text": full_text,
-                    "is_public": False
+                    "text": full_text
                 }
                 
                 try:
@@ -246,17 +194,29 @@ with flik1:
 with flik2:
     st.header("Mina sparade recept")
     
-    if st.button("🔄 Stäng alla öppna recept"):
-        st.rerun()
-    
+    with st.expander("⚙️ Inställningar för delning"):
+        nuvarande_status = False
+        try:
+            user_check = supabase.table("recept").select("is_public").eq("user_id", st.session_state["user"].id).limit(1).execute()
+            if user_check.data and len(user_check.data) > 0:
+                nuvarande_status = bool(user_check.data[0].get("is_public", False))
+        except Exception as e:
+            st.error(f"Kunde inte läsa delningsstatus: {e}")
+
+        gör_publik = st.checkbox("🌍 Gör hela min receptbok publik (synlig under Delade böcker)", value=nuvarande_status)
+        
+        if st.button("Uppdatera delningsstatus"):
+            try:
+                supabase.table("recept").update({"is_public": gör_publik}).eq("user_id", st.session_state["user"].id).execute()
+                st.success("Delningsinställningen har sparats!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Kunde inte uppdatera delningsstatus: {e}")
+
     sokord = st.text_input("🔍 Sök i dina recept...", "", key="sok_recept")
     
     try:
-        if sokord:
-            res = supabase.table("recept").select("*").eq("user_id", st.session_state["user"].id).ilike("titel", f"%{sokord}%").execute()
-        else:
-            res = supabase.table("recept").select("*").eq("user_id", st.session_state["user"].id).execute()
-        
+        res = supabase.table("recept").select("*").eq("user_id", st.session_state["user"].id).execute()
         recept_lista = res.data
         
         if not recept_lista:
@@ -265,98 +225,96 @@ with flik2:
             for r in recept_lista:
                 titel = r.get("titel") or "Namnlöst recept"
                 kategori = r.get("kategori") or "Övrigt"
-                recept_id = r.get('id')
+                bild_url = r.get("bild_url") or r.get("image_url")
                 
-                with st.expander(f"📌 {titel} ({kategori})"):
-                    text_content = r.get("text", "")
-                    if text_content is None:
-                        text_content = ""
-                    elif not isinstance(text_content, str):
-                        text_content = str(text_content)
-                    
-                    # Visa receptet
-                    st.markdown(text_content, unsafe_allow_html=True)
-                    
-                    st.divider()
-                    
-                    del_text = f"Recept: {titel}\n\n{kategori}\n\n{text_content}"
-                    
-                    col_share, col_print = st.columns(2)
-                    
-                    with col_share:
-                        share_html = f"""
-                        <script>
-                        function shareRecipe_{str(recept_id).replace('-', '_')}() {{
-                            const shareData = {{
-                                title: '{html.escape(titel)}',
-                                text: `{del_text.replace('`', '\\`')}`
-                            }};
+                if sokord.lower() in str(titel).lower() or sokord.lower() in str(r.get("text", "")).lower():
+                    with st.expander(f"📌 {titel} ({kategori})"):
+                        if bild_url:
+                            st.image(bild_url, width=250)
                             
-                            if (navigator.share) {{
-                                navigator.share(shareData)
-                                    .then(() => console.log('Delning lyckades!'))
-                                    .catch((error) => console.log('Delning misslyckades:', error));
-                            }} else {{
-                                navigator.clipboard.writeText(shareData.text).then(() => {{
-                                    alert('Receptet har kopierats till urklipp!');
-                                }}).catch((err) => {{
-                                    console.error('Kunde inte kopiera:', err);
+                        st.markdown(r.get("text", ""), unsafe_allow_html=True)
+                        
+                        st.divider()
+                        
+                        recept_id = r.get('id')
+                        recept_innehall = f"Recept: {titel} ({kategori})\n\n{r.get('text', '')}"
+                        safe_text = json.dumps(recept_innehall)
+                        
+                        print_html = f"""
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                        <meta charset="utf-8">
+                        <style>
+                          body {{ margin: 0; font-family: sans-serif; background-color: transparent; }}
+                          .btn-container {{ display: flex; gap: 8px; flex-wrap: wrap; }}
+                          button {{
+                              background-color: #ff4b4b;
+                              color: white;
+                              border: none;
+                              padding: 8px 14px;
+                              border-radius: 6px;
+                              font-weight: 600;
+                              cursor: pointer;
+                              font-size: 13px;
+                              box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                          }}
+                          button:hover {{ background-color: #ff2b2b; }}
+                          #status {{ font-size: 13px; color: #666; align-self: center; }}
+
+                          .print-only {{ display: none; }}
+
+                          @media print {{
+                              body {{ background: white; color: black; font-size: 15px; padding: 20px; }}
+                              .btn-container {{ display: none !important; }}
+                              .print-only {{ display: block !important; }}
+                          }}
+                        </style>
+                        </head>
+                        <body>
+                            <div class="btn-container">
+                                <button onclick="printRecipe()">🖨 Skriv ut recept</button>
+                                <button onclick="copyRecipe()">📋 Kopiera text</button>
+                                <span id="status"></span>
+                            </div>
+
+                            <div class="print-only">
+                              <h2>{titel}</h2>
+                              <p><em>Kategori: {kategori}</em></p>
+                              <hr style="border:0; border-top:1px solid #ccc; margin: 15px 0;"/>
+                              <div style="white-space: pre-line;">{r.get('text', '')}</div>
+                            </div>
+
+                            <script>
+                            function printRecipe() {{
+                                window.print();
+                            }}
+
+                            function copyRecipe() {{
+                                const textToShare = {safe_text};
+                                const statusEl = document.getElementById('status');
+                                navigator.clipboard.writeText(textToShare).then(() => {{
+                                    statusEl.innerText = 'Kopierat!';
+                                    setTimeout(() => {{ statusEl.innerText = ''; }}, 2000);
                                 }});
                             }}
-                        }}
-                        </script>
-                        
-                        <button onclick="shareRecipe_{str(recept_id).replace('-', '_')}()" 
-                                style="background-color: #007AFF; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); width: 100%;">
-                            {SHARE_ICON} Dela recept
-                        </button>
+                            </script>
+                        </body>
+                        </html>
                         """
-                        components.html(share_html, height=50)
-                    
-                    with col_print:
-                        # FIX: Använd download_button istället för window.print()
-                        print_html_content = f"""<!DOCTYPE html>
-<html>
-<head>
-    <title>{html.escape(titel)}</title>
-    <meta charset="UTF-8">
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 40px; padding: 20px; background: white; line-height: 1.6; }}
-        h1 {{ color: #333; font-size: 28px; margin-bottom: 10px; border-bottom: 2px solid #007AFF; padding-bottom: 10px; }}
-        h2 {{ color: #666; font-size: 20px; margin-bottom: 20px; }}
-        table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
-        th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-        th {{ background-color: #f2f2f2; }}
-    </style>
-</head>
-<body>
-    <h1>{html.escape(titel)}</h1>
-    <h2>{html.escape(kategori)}</h2>
-    <div>{text_content}</div>
-    <script>window.onload = function() {{ setTimeout(function() {{ window.print(); }}, 500); }};</script>
-</body>
-</html>"""
+                        components.html(print_html, height=55)
                         
-                        st.download_button(
-                            label=f"{PRINT_ICON} Ladda ner för utskrift",
-                            data=print_html_content.encode('utf-8'),
-                            file_name=f"{titel.replace(' ', '_')}_recept.html",
-                            mime="text/html",
-                            key=f"download_{recept_id}"
-                        )
-                        st.caption("Öppna filen och välj Skriv ut (Ctrl+P)")
-                    
-                    if st.button(f"{DELETE_ICON} Radera recept", key=f"del_{recept_id}"):
-                        supabase.table("recept").delete().eq("id", recept_id).execute()
-                        st.success("Receptet raderades!")
-                        st.rerun()
-                        
+                        if st.button("🗑️ Radera recept", key=f"del_{recept_id}"):
+                            supabase.table("recept").delete().eq("id", recept_id).execute()
+                            st.success("Receptet raderades!")
+                            st.rerun()
+                            
     except Exception as e:
         st.error(f"Kunde inte hämta recept från Supabase: {e}")
 
 with flik3:
     st.header("👥 Delade receptböcker")
-    st.markdown("Här kan du välja och läsa andra användares publika receptböcker.")
+    st.markdown("Här kan du välja och läsa andra användares publika receptböcker via rullgardinsmenyn nedan.")
     
     try:
         publika_res = supabase.table("recept").select("*").eq("is_public", True).execute()
@@ -372,19 +330,15 @@ with flik3:
                     användare_dict[uid] = []
                 användare_dict[uid].append(rec)
             
-            användar_info = {}
-            for uid in användare_dict.keys():
-                användar_info[uid] = f"Receptbok ({uid[:8]}...)"
-            
             vald_användare = st.selectbox(
-                "Välj receptbok:", 
+                "Välj receptbok att kika i:", 
                 options=list(användare_dict.keys()),
-                format_func=lambda x: användar_info.get(x, f"Receptbok ({x[:8]}...)")
+                format_func=lambda x: f"Receptbok av användare ({x[:8]}...)"
             )
             
             if vald_användare:
                 st.divider()
-                st.subheader(f"📖 Receptsamling från {användar_info.get(vald_användare, 'Okänd')}")
+                st.subheader("📖 Receptsamling")
                 
                 for r in användare_dict[vald_användare]:
                     titel = r.get("titel") or "Namnlöst recept"
@@ -392,81 +346,76 @@ with flik3:
                     recept_id = r.get('id')
                     
                     with st.expander(f"📌 {titel} ({kategori})"):
-                        text_content = r.get("text", "")
-                        if text_content is None:
-                            text_content = ""
-                        elif not isinstance(text_content, str):
-                            text_content = str(text_content)
-                            
-                        st.markdown(text_content, unsafe_allow_html=True)
+                        st.markdown(r.get("text", ""), unsafe_allow_html=True)
                         
                         st.divider()
                         
-                        del_text_d = f"Recept: {titel}\n\n{kategori}\n\n{text_content}"
+                        recept_innehall_d = f"Recept: {titel} ({kategori})\n\n{r.get('text', '')}"
+                        safe_text_d = json.dumps(recept_innehall_d)
                         
-                        col_share_d, col_print_d = st.columns(2)
-                        
-                        with col_share_d:
-                            share_html_d = f"""
+                        print_html_d = f"""
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                        <meta charset="utf-8">
+                        <style>
+                          body {{ margin: 0; font-family: sans-serif; background-color: transparent; }}
+                          .btn-container {{ display: flex; gap: 8px; flex-wrap: wrap; }}
+                          button {{
+                              background-color: #ff4b4b;
+                              color: white;
+                              border: none;
+                              padding: 8px 14px;
+                              border-radius: 6px;
+                              font-weight: 600;
+                              cursor: pointer;
+                              font-size: 13px;
+                              box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                          }}
+                          button:hover {{ background-color: #ff2b2b; }}
+                          #status {{ font-size: 13px; color: #666; align-self: center; }}
+
+                          .print-only {{ display: none; }}
+
+                          @media print {{
+                              body {{ background: white; color: black; font-size: 15px; padding: 20px; }}
+                              .btn-container {{ display: none !important; }}
+                              .print-only {{ display: block !important; }}
+                          }}
+                        </style>
+                        </head>
+                        <body>
+                            <div class="btn-container">
+                                <button onclick="printRecipe()">🖨 Skriv ut recept</button>
+                                <button onclick="copyRecipe()">📋 Kopiera text</button>
+                                <span id="status"></span>
+                            </div>
+
+                            <div class="print-only">
+                              <h2>{titel}</h2>
+                              <p><em>Kategori: {kategori}</em></p>
+                              <hr style="border:0; border-top:1px solid #ccc; margin: 15px 0;"/>
+                              <div style="white-space: pre-line;">{r.get('text', '')}</div>
+                            </div>
+
                             <script>
-                            function shareRecipeD_{str(recept_id).replace('-', '_')}() {{
-                                const shareData = {{
-                                    title: '{html.escape(titel)}',
-                                    text: `{del_text_d.replace('`', '\\`')}`
-                                }};
-                                
-                                if (navigator.share) {{
-                                    navigator.share(shareData)
-                                        .then(() => console.log('Delning lyckades!'))
-                                        .catch((error) => console.log('Delning misslyckades:', error));
-                                }} else {{
-                                    navigator.clipboard.writeText(shareData.text).then(() => {{
-                                        alert('Receptet har kopierats till urklipp!');
-                                    }}).catch((err) => {{
-                                        console.error('Kunde inte kopiera:', err);
-                                    }});
-                                }}
+                            function printRecipe() {{
+                                window.print();
+                            }}
+
+                            function copyRecipe() {{
+                                const textToShare = {safe_text_d};
+                                const statusEl = document.getElementById('status');
+                                navigator.clipboard.writeText(textToShare).then(() => {{
+                                    statusEl.innerText = 'Kopierat!';
+                                    setTimeout(() => {{ statusEl.innerText = ''; }}, 2000);
+                                }});
                             }}
                             </script>
-                            
-                            <button onclick="shareRecipeD_{str(recept_id).replace('-', '_')}()" 
-                                    style="background-color: #007AFF; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); width: 100%;">
-                                {SHARE_ICON} Dela recept
-                            </button>
-                            """
-                            components.html(share_html_d, height=50)
-                        
-                        with col_print_d:
-                            print_html_d = f"""<!DOCTYPE html>
-<html>
-<head>
-    <title>{html.escape(titel)}</title>
-    <meta charset="UTF-8">
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 40px; padding: 20px; background: white; line-height: 1.6; }}
-        h1 {{ color: #333; font-size: 28px; margin-bottom: 10px; border-bottom: 2px solid #007AFF; padding-bottom: 10px; }}
-        h2 {{ color: #666; font-size: 20px; margin-bottom: 20px; }}
-        table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
-        th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-        th {{ background-color: #f2f2f2; }}
-    </style>
-</head>
-<body>
-    <h1>{html.escape(titel)}</h1>
-    <h2>{html.escape(kategori)}</h2>
-    <div>{text_content}</div>
-    <script>window.onload = function() {{ setTimeout(function() {{ window.print(); }}, 500); }};</script>
-</body>
-</html>"""
-                            
-                            st.download_button(
-                                label=f"{PRINT_ICON} Ladda ner för utskrift",
-                                data=print_html_d.encode('utf-8'),
-                                file_name=f"{titel.replace(' ', '_')}_recept.html",
-                                mime="text/html",
-                                key=f"download_d_{recept_id}"
-                            )
-                            st.caption("Öppna filen och välj Skriv ut (Ctrl+P)")
+                        </body>
+                        </html>
+                        """
+                        components.html(print_html_d, height=55)
                                 
     except Exception as e:
         st.error(f"Kunde inte hämta delade recept: {e}")
