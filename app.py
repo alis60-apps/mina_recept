@@ -16,7 +16,7 @@ gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY
 client = genai.Client(api_key=gemini_api_key)
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.10"
+VERSION = "v1.11"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
@@ -192,7 +192,7 @@ with flik1:
                     
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Kunde inte spara till Supabase: {e}")
+                    st.error(f"Kunde inte spara till databasen: {e}")
 
 with flik2:
     st.header("Mina sparade recept")
@@ -229,6 +229,7 @@ with flik2:
                 titel = r.get("titel") or "Namnlöst recept"
                 kategori = r.get("kategori") or "Övrigt"
                 bild_url = r.get("bild_url") or r.get("image_url")
+                recept_id = r.get('id')
                 
                 raw_db_text = r.get("text", "")
                 
@@ -247,115 +248,157 @@ with flik2:
                 
                 if sokord.lower() in str(titel).lower() or sokord.lower() in str(recept_text_clean).lower():
                     with st.expander(f"📌 {titel} ({kategori})"):
-                        if bild_url:
-                            st.image(bild_url, width=250)
+                        
+                        # Kontrollera om användaren klickat på redigera för detta recept
+                        edit_key = f"edit_mode_{recept_id}"
+                        if edit_key not in st.session_state:
+                            st.session_state[edit_key] = False
                             
-                        st.markdown(recept_text_clean, unsafe_allow_html=True)
-                        if narings_del:
-                            st.markdown("### 📊 Näringsinnehåll\n" + narings_del)
-                        
-                        st.divider()
-                        
-                        recept_id = r.get('id')
-                        full_visnings_text = f"{recept_text_clean}\n\n### 📊 Näringsinnehåll\n{narings_del}" if narings_del else recept_text_clean
-                        recept_innehall = f"Recept: {titel} ({kategori})\n\n{full_visnings_text}"
-                        safe_text = json.dumps(recept_innehall)
-                        
-                        print_html_content = recept_text_clean.replace(chr(92), chr(92)*2).replace("'", "\\'").replace(chr(10), "<br>")
-                        
-                        narings_html_print = ""
-                        if narings_del:
-                            naring_lines = narings_del.split("\n")
-                            table_rows = []
-                            for line in naring_lines:
-                                if "|" in line and "---" not in line:
-                                    cols = [c.strip() for c in line.split("|") if c.strip() != ""]
-                                    if cols:
-                                        table_rows.append(cols)
-                            if table_rows:
-                                narings_html_print += "<h3>📊 Näringsinnehåll</h3><table>"
-                                for i, row in enumerate(table_rows):
-                                    tag = "th" if i == 0 else "td"
-                                    narings_html_print += "<tr>"
-                                    for col in row:
-                                        narings_html_print += f"<{tag}>{col}</{tag}>"
-                                    narings_html_print += "</tr>"
-                                narings_html_print += "</table>"
-                        
-                        print_html = f"""
-                        <!DOCTYPE html>
-                        <html>
-                        <head>
-                        <meta charset="utf-8">
-                        <style>
-                          body {{ margin: 0; font-family: sans-serif; background-color: transparent; }}
-                          .btn-container {{ display: flex; gap: 8px; flex-wrap: wrap; }}
-                          button {{
-                              background-color: #ff4b4b;
-                              color: white;
-                              border: none;
-                              padding: 8px 14px;
-                              border-radius: 6px;
-                              font-weight: 600;
-                              cursor: pointer;
-                              font-size: 13px;
-                              box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                          }}
-                          button:hover {{ background-color: #ff2b2b; }}
-                          #status {{ font-size: 13px; color: #666; align-self: center; }}
-                        </style>
-                        </head>
-                        <body>
-                            <div class="btn-container">
-                                <button onclick="printRecipe()">🖨 Skriv ut recept</button>
-                                <button onclick="copyRecipe()">📋 Kopiera text</button>
-                                <span id="status"></span>
-                            </div>
+                        col_visa1, col_visa2 = st.columns([10, 2])
+                        with col_visa2:
+                            if st.button("✏️ Redigera", key=f"btn_toggle_edit_{recept_id}"):
+                                st.session_state[edit_key] = not st.session_state[edit_key]
+                                st.rerun()
 
-                            <script>
-                            function printRecipe() {{
-                                const win = window.open('', '_blank');
-                                if (!win) {{
-                                    alert('Tillåt popups i webbläsaren för att skriva ut.');
-                                    return;
-                                }}
-                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} h3 {{ margin-top: 20px; font-size: 16px; }} table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }} th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
-                                win.document.write('<h2>{titel}</h2>');
-                                win.document.write('<p><em>Kategori: {kategori}</em></p>');
-                                win.document.write('<hr/>');
-                                win.document.write('<div>{print_html_content}</div>');
-                                win.document.write('{narings_html_print}');
-                                win.document.write('</body></html>');
-                                win.document.close();
-                                win.focus();
+                        if st.session_state[edit_key]:
+                            # --- REDIGERINGSVY ---
+                            with st.form(key=f"form_edit_{recept_id}"):
+                                ny_titel = st.text_input("Titel", value=titel)
+                                ny_kategori = st.text_input("Kategori", value=kategori)
+                                ny_text = st.text_area("Recepttext & Näringsinnehåll", value=raw_db_text, height=300)
                                 
-                                setTimeout(() => {{
-                                    win.print();
-                                    win.close();
-                                }}, 500);
-                            }}
+                                col_spara, col_avbryt = st.columns(2)
+                                with col_spara:
+                                    submit_sparand = st.form_submit_button("💾 Spara ändringar")
+                                with col_avbryt:
+                                    submit_avbryt = st.form_submit_button("Avbryt")
+                                    
+                                if submit_sparand:
+                                    try:
+                                        supabase.table("recept").update({
+                                            "titel": ny_titel,
+                                            "kategori": ny_kategori,
+                                            "text": ny_text
+                                        }).eq("id", recept_id).execute()
+                                        st.success("Ändringarna sparades!")
+                                        st.session_state[edit_key] = False
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Kunde inte uppdatera: {e}")
+                                        
+                                if submit_avbryt:
+                                    st.session_state[edit_key] = False
+                                    st.rerun()
+                        else:
+                            # --- VANLIG VISNINGSVY ---
+                            if bild_url:
+                                st.image(bild_url, width=250)
+                                
+                            st.markdown(recept_text_clean, unsafe_allow_html=True)
+                            if narings_del:
+                                st.markdown("### 📊 Näringsinnehåll\n" + narings_del)
+                            
+                            st.divider()
+                            
+                            full_visnings_text = f"{recept_text_clean}\n\n### 📊 Näringsinnehåll\n{narings_del}" if narings_del else recept_text_clean
+                            recept_innehall = f"Recept: {titel} ({kategori})\n\n{full_visnings_text}"
+                            safe_text = json.dumps(recept_innehall)
+                            
+                            print_html_content = recept_text_clean.replace(chr(92), chr(92)*2).replace("'", "\\'").replace(chr(10), "<br>")
+                            
+                            narings_html_print = ""
+                            if narings_del:
+                                naring_lines = narings_del.split("\n")
+                                table_rows = []
+                                for line in naring_lines:
+                                    if "|" in line and "---" not in line:
+                                        cols = [c.strip() for c in line.split("|") if c.strip() != ""]
+                                        if cols:
+                                            table_rows.append(cols)
+                                if table_rows:
+                                    narings_html_print += "<h3>📊 Näringsinnehåll</h3><table>"
+                                    for i, row in enumerate(table_rows):
+                                        tag = "th" if i == 0 else "td"
+                                        narings_html_print += "<tr>"
+                                        for col in row:
+                                            narings_html_print += f"<{tag}>{col}</{tag}>"
+                                        narings_html_print += "</tr>"
+                                    narings_html_print += "</table>"
+                            
+                            print_html = f"""
+                            <!DOCTYPE html>
+                            <html>
+                            <head>
+                            <meta charset="utf-8">
+                            <style>
+                              body {{ margin: 0; font-family: sans-serif; background-color: transparent; }}
+                              .btn-container {{ display: flex; gap: 8px; flex-wrap: wrap; }}
+                              button {{
+                                  background-color: #ff4b4b;
+                                  color: white;
+                                  border: none;
+                                  padding: 8px 14px;
+                                  border-radius: 6px;
+                                  font-weight: 600;
+                                  cursor: pointer;
+                                  font-size: 13px;
+                                  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                              }}
+                              button:hover {{ background-color: #ff2b2b; }}
+                              #status {{ font-size: 13px; color: #666; align-self: center; }}
+                            </style>
+                            </head>
+                            <body>
+                                <div class="btn-container">
+                                    <button onclick="printRecipe()">🖨 Skriv ut recept</button>
+                                    <button onclick="copyRecipe()">📋 Kopiera text</button>
+                                    <span id="status"></span>
+                                </div>
 
-                            function copyRecipe() {{
-                                const textToShare = {safe_text};
-                                const statusEl = document.getElementById('status');
-                                navigator.clipboard.writeText(textToShare).then(() => {{
-                                    statusEl.innerText = 'Kopierat!';
-                                    setTimeout(() => {{ statusEl.innerText = ''; }}, 2000);
-                                }});
-                            }}
-                            </script>
-                        </body>
-                        </html>
-                        """
-                        components.html(print_html, height=45)
-                        
-                        if st.button("🗑️ Radera recept", key=f"del_{recept_id}"):
-                            supabase.table("recept").delete().eq("id", recept_id).execute()
-                            st.success("Receptet raderades!")
-                            st.rerun()
+                                <script>
+                                function printRecipe() {{
+                                    const win = window.open('', '_blank');
+                                    if (!win) {{
+                                        alert('Tillåt popups i webbläsaren för att skriva ut.');
+                                        return;
+                                    }}
+                                    win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} h3 {{ margin-top: 20px; font-size: 16px; }} table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }} th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
+                                    win.document.write('<h2>{titel}</h2>');
+                                    win.document.write('<p><em>Kategori: {kategori}</em></p>');
+                                    win.document.write('<hr/>');
+                                    win.document.write('<div>{print_html_content}</div>');
+                                    win.document.write('{narings_html_print}');
+                                    win.document.write('</body></html>');
+                                    win.document.close();
+                                    win.focus();
+                                    
+                                    setTimeout(() => {{
+                                        win.print();
+                                        win.close();
+                                    }}, 500);
+                                }}
+
+                                function copyRecipe() {{
+                                    const textToShare = {safe_text};
+                                    const statusEl = document.getElementById('status');
+                                    navigator.clipboard.writeText(textToShare).then(() => {{
+                                        statusEl.innerText = 'Kopierat!';
+                                        setTimeout(() => {{ statusEl.innerText = ''; }}, 2000);
+                                    }});
+                                }}
+                                </script>
+                            </body>
+                            </html>
+                            """
+                            components.html(print_html, height=45)
+                            
+                            if st.button("🗑️ Radera recept", key=f"del_{recept_id}"):
+                                supabase.table("recept").delete().eq("id", recept_id).execute()
+                                st.success("Receptet raderades!")
+                                st.rerun()
                             
     except Exception as e:
-        st.error(f"Kunde inte hämta recept från Supabase: {e}")
+        st.error(f"Kunde inte hämta recept från databasen: {e}")
 
 with flik3:
     st.header("👥 Delade receptböcker")
