@@ -17,7 +17,7 @@ gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY
 client = genai.Client(api_key=gemini_api_key)
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.29"
+VERSION = "v1.30"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
@@ -105,7 +105,7 @@ with flik1:
                     )
                     
                     response = client.models.generate_content(
-                        model='gemini-2.5-flash',
+                        model='gemini-3.8-flash',
                         contents=[bild, prompt]
                     )
                     
@@ -166,7 +166,6 @@ with flik1:
             if st.button("💾 Spara till databasen", key="btn_spara"):
                 with st.spinner("Laddar upp bild och sparar recept..."):
                     try:
-                        # 1. Hämta befintlig användarprofil/namn om det finns
                         existing_meta = supabase.table("recept").select("bok_namn, is_public").eq("user_id", st.session_state["user"].id).limit(1).execute()
                         current_bok_namn = "Anonymkokboken"
                         current_is_public = False
@@ -174,7 +173,6 @@ with flik1:
                             current_bok_namn = existing_meta.data[0].get("bok_namn") or "Anonymkokboken"
                             current_is_public = bool(existing_meta.data[0].get("is_public", False))
 
-                        # 2. Ladda upp bilden till Supabase Storage
                         bild_url = None
                         if uppuploadad_bild is not None:
                             file_ext = uppuploadad_bild.name.split(".")[-1]
@@ -191,7 +189,6 @@ with flik1:
                             public_url_res = supabase.storage.from_("recept-bilder").get_public_url(file_name)
                             bild_url = public_url_res
                         
-                        # 3. Bygg ihop fulltext med närings- och vitamintabell
                         naring_table_md = (
                             "\n\n### 📊 Näringsinnehåll & Vitaminer\n"
                             "| Näringsämne | Per 100 g | Per Portion |\n"
@@ -250,7 +247,6 @@ with flik2:
         
         if st.button("Uppdatera delningsinställningar"):
             try:
-                # Uppdatera alla användarens recept med det nya namnet och publika statusen
                 supabase.table("recept").update({
                     "is_public": gör_publik,
                     "bok_namn": input_bok_namn
