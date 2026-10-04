@@ -17,7 +17,7 @@ gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY
 client = genai.Client(api_key=gemini_api_key)
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.28"
+VERSION = "v1.29"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
@@ -105,7 +105,7 @@ with flik1:
                     )
                     
                     response = client.models.generate_content(
-                        model='gemini-3.8-flash',
+                        model='gemini-2.5-flash',
                         contents=[bild, prompt]
                     )
                     
@@ -166,7 +166,15 @@ with flik1:
             if st.button("💾 Spara till databasen", key="btn_spara"):
                 with st.spinner("Laddar upp bild och sparar recept..."):
                     try:
-                        # 1. Ladda upp bilden till Supabase Storage
+                        # 1. Hämta befintlig användarprofil/namn om det finns
+                        existing_meta = supabase.table("recept").select("bok_namn, is_public").eq("user_id", st.session_state["user"].id).limit(1).execute()
+                        current_bok_namn = "Anonymkokboken"
+                        current_is_public = False
+                        if existing_meta.data and len(existing_meta.data) > 0:
+                            current_bok_namn = existing_meta.data[0].get("bok_namn") or "Anonymkokboken"
+                            current_is_public = bool(existing_meta.data[0].get("is_public", False))
+
+                        # 2. Ladda upp bilden till Supabase Storage
                         bild_url = None
                         if uppuploadad_bild is not None:
                             file_ext = uppuploadad_bild.name.split(".")[-1]
@@ -183,7 +191,7 @@ with flik1:
                             public_url_res = supabase.storage.from_("recept-bilder").get_public_url(file_name)
                             bild_url = public_url_res
                         
-                        # 2. Bygg ihop fulltext med närings- och vitamintabell
+                        # 3. Bygg ihop fulltext med närings- och vitamintabell
                         naring_table_md = (
                             "\n\n### 📊 Näringsinnehåll & Vitaminer\n"
                             "| Näringsämne | Per 100 g | Per Portion |\n"
@@ -208,7 +216,9 @@ with flik1:
                             "titel": titel_input,
                             "kategori": kategori_input,
                             "text": full_text,
-                            "bild_url": bild_url
+                            "bild_url": bild_url,
+                            "is_public": current_is_public,
+                            "bok_namn": current_bok_namn
                         }
                         
                         supabase.table("recept").insert(data_att_spara).execute()
@@ -224,24 +234,31 @@ with flik1:
 with flik2:
     st.header("Mina sparade recept")
     
-    with st.expander("⚙ Inställningar för delning"):
+    with st.expander("⚙ Inställningar för delning & Namn"):
         nuvarande_status = False
+        nuvarande_bok_namn = "Min Receptbok"
         try:
-            user_check = supabase.table("recept").select("is_public").eq("user_id", st.session_state["user"].id).limit(1).execute()
+            user_check = supabase.table("recept").select("is_public, bok_namn").eq("user_id", st.session_state["user"].id).limit(1).execute()
             if user_check.data and len(user_check.data) > 0:
                 nuvarande_status = bool(user_check.data[0].get("is_public", False))
+                nuvarande_bok_namn = user_check.data[0].get("bok_namn") or "Min Receptbok"
         except Exception as e:
-            st.error(f"Kunde inte läsa delningsstatus: {e}")
+            pass
 
+        input_bok_namn = st.text_input("Namn på din receptbok (visas för andra)", value=nuvarande_bok_namn)
         gör_publik = st.checkbox("🌍 Gör hela min receptbok publik (synlig under Delade böcker)", value=nuvarande_status)
         
-        if st.button("Uppdatera delningsstatus"):
+        if st.button("Uppdatera delningsinställningar"):
             try:
-                supabase.table("recept").update({"is_public": gör_publik}).eq("user_id", st.session_state["user"].id).execute()
-                st.success("Delningsinställningen har sparats!")
+                # Uppdatera alla användarens recept med det nya namnet och publika statusen
+                supabase.table("recept").update({
+                    "is_public": gör_publik,
+                    "bok_namn": input_bok_namn
+                }).eq("user_id", st.session_state["user"].id).execute()
+                st.success("Inställningarna har sparats!")
                 st.rerun()
             except Exception as e:
-                st.error(f"Kunde inte uppdatera delningsstatus: {e}")
+                st.error(f"Kunde inte uppdatera inställningar: {e}")
 
     sokord = st.text_input("🔍 Sök i dina recept...", "", key="sok_recept")
     
@@ -439,21 +456,24 @@ with flik3:
             st.info("Inga publika receptböcker hittades just nu.")
         else:
             användare_dict = {}
+            bok_namn_dict = {}
             for rec in publika_recept:
                 uid = rec.get("user_id")
+                b_namn = rec.get("bok_namn") or f"Receptbok ({uid[:6]}...)"
                 if uid not in användare_dict:
                     användare_dict[uid] = []
+                    bok_namn_dict[uid] = b_namn
                 användare_dict[uid].append(rec)
             
             vald_användare = st.selectbox(
                 "Välj receptbok att kika i:", 
                 options=list(användare_dict.keys()),
-                format_func=lambda x: f"Receptbok av användare ({x[:8]}...)"
+                format_func=lambda x: f"📖 {bok_namn_dict.get(x, 'Receptbok')}"
             )
             
             if vald_användare:
                 st.divider()
-                st.subheader("📖 Receptsamling")
+                st.subheader(f"📖 Receptsamling: {bok_namn_dict.get(vald_användare, 'Receptbok')}")
                 
                 for r in användare_dict[vald_användare]:
                     titel = r.get("titel") or "Namnlöst recept"
