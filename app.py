@@ -6,6 +6,7 @@ import json
 import pandas as pd
 from supabase import create_client, Client
 import streamlit.components.v1 as components
+import uuid
 
 # --- SUPABASE & GEMINI CONFIG ---
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL"))
@@ -16,7 +17,7 @@ gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY
 client = genai.Client(api_key=gemini_api_key)
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.26"
+VERSION = "v1.27"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
@@ -27,7 +28,6 @@ if not st.session_state["user"]:
     st.subheader("🔑 Logga in")
     
     with st.form("login_form"):
-        # Med autocomplete-attribut hjälper det webbläsaren/lösenordshanteraren att känna igen fälten
         email = st.text_input("E-post", key="login_email", autocomplete="username")
         password = st.text_input("Lösenord", type="password", key="login_password", autocomplete="current-password")
         
@@ -161,39 +161,61 @@ with flik1:
             text_input = st.text_area("Recepttext (Ingredienser & Instruktioner)", value=rec.get("text", ""), height=220)
             
             if st.button("💾 Spara till databasen", key="btn_spara"):
-                naring_table_md = (
-                    "\n\n### 📊 Näringsinnehåll\n"
-                    "| Näringsämne (Makros) | Per 100 g | Per Portion |\n"
-                    "| :--- | :---: | :---: |\n"
-                    f"| ⚡ Energi | {h_data.get('energi', '-')} | {p_data.get('energi', '-')} |\n"
-                    f"| 🥩 Protein | {h_data.get('protein', '-')} | {p_data.get('protein', '-')} |\n"
-                    f"| 🍞 Kolhydrater | {h_data.get('kolhydrater', '-')} | {p_data.get('kolhydrater', '-')} |\n"
-                    f"| varav sockerarter | {h_data.get('socker', '-')} | {p_data.get('socker', '-')} |\n"
-                    f"| 🥑 Fett | {h_data.get('fett', '-')} | {p_data.get('fett', '-')} |\n"
-                    f"| varav mättat fett | {h_data.get('mattat_fett', '-')} | {p_data.get('mattat_fett', '-')} |\n"
-                    f"| 🌾 Fiber | {h_data.get('fiber', '-')} | {p_data.get('fiber', '-')} |\n"
-                    f"| 🧂 Salt | {h_data.get('salt', '-')} | {p_data.get('salt', '-')} |\n"
-                )
-                
-                full_text = f"{text_input}{naring_table_md}"
-                
-                data_att_spara = {
-                    "user_id": st.session_state["user"].id,
-                    "titel": titel_input,
-                    "kategori": kategori_input,
-                    "text": full_text
-                }
-                
-                try:
-                    supabase.table("recept").insert(data_att_spara).execute()
-                    st.success("Receptet har sparats!")
-                    
-                    del st.session_state["analyserat_recept"]
-                    st.session_state["uploader_key"] += 1
-                    
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Kunde inte spara till databasen: {e}")
+                with st.spinner("Laddar upp bild och sparar recept..."):
+                    try:
+                        # 1. Ladda upp bilden till Supabase Storage (OBS: Skapa en bucket som heter 'recept-bilder' i Supabase)
+                        bild_url = None
+                        if uppuploadad_bild is not None:
+                            file_ext = uppuploadad_bild.name.split(".")[-1]
+                            file_name = f"{st.session_state['user'].id}/{uuid.uuid4()}.{file_ext}"
+                            
+                            # Återställ pekaren på filen
+                            uppuploadad_bild.seek(0)
+                            
+                            supabase.storage.from_("recept-bilder").upload(
+                                path=file_name,
+                                file=uppuploadad_bild.getvalue(),
+                                file_options={"content-type": f"image/{file_ext}"}
+                            )
+                            
+                            # Hämta publik URL för bilden
+                            public_url_res = supabase.storage.from_("recept-bilder").get_public_url(file_name)
+                            bild_url = public_url_res
+                        
+                        # 2. Bygg ihop fulltext med näringstabell
+                        naring_table_md = (
+                            "\n\n### 📊 Näringsinnehåll\n"
+                            "| Näringsämne (Makros) | Per 100 g | Per Portion |\n"
+                            "| :--- | :---: | :---: |\n"
+                            f"| ⚡ Energi | {h_data.get('energi', '-')} | {p_data.get('energi', '-')} |\n"
+                            f"| 🥩 Protein | {h_data.get('protein', '-')} | {p_data.get('protein', '-')} |\n"
+                            f"| 🍞 Kolhydrater | {h_data.get('kolhydrater', '-')} | {p_data.get('kolhydrater', '-')} |\n"
+                            f"| varav sockerarter | {h_data.get('socker', '-')} | {p_data.get('socker', '-')} |\n"
+                            f"| 🥑 Fett | {h_data.get('fett', '-')} | {p_data.get('fett', '-')} |\n"
+                            f"| varav mättat fett | {h_data.get('mattat_fett', '-')} | {p_data.get('mattat_fett', '-')} |\n"
+                            f"| 🌾 Fiber | {h_data.get('fiber', '-')} | {p_data.get('fiber', '-')} |\n"
+                            f"| 🧂 Salt | {h_data.get('salt', '-')} | {p_data.get('salt', '-')} |\n"
+                        )
+                        
+                        full_text = f"{text_input}{naring_table_md}"
+                        
+                        data_att_spara = {
+                            "user_id": st.session_state["user"].id,
+                            "titel": titel_input,
+                            "kategori": kategori_input,
+                            "text": full_text,
+                            "bild_url": bild_url  # Sparar bildlänken i tabellen
+                        }
+                        
+                        supabase.table("recept").insert(data_att_spara).execute()
+                        st.success("Recept och bild har sparats!")
+                        
+                        del st.session_state["analyserat_recept"]
+                        st.session_state["uploader_key"] += 1
+                        
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Kunde inte spara till databasen: {e}")
 
 with flik2:
     st.header("Mina sparade recept")
@@ -229,7 +251,7 @@ with flik2:
             for r in recept_lista:
                 titel = r.get("titel") or "Namnlöst recept"
                 kategori = r.get("kategori") or "Övrigt"
-                bild_url = r.get("bild_url") or r.get("image_url")
+                bild_url = r.get("bild_url")
                 recept_id = r.get('id')
                 
                 raw_db_text = r.get("text", "")
@@ -287,7 +309,7 @@ with flik2:
                         else:
                             # --- VANLIG VISNINGSVY ---
                             if bild_url:
-                                st.image(bild_url, width=250)
+                                st.image(bild_url, caption="Skannat recept", width=300)
                                 
                             st.markdown(recept_text_clean, unsafe_allow_html=True)
                             if narings_del:
@@ -430,6 +452,7 @@ with flik3:
                 for r in användare_dict[vald_användare]:
                     titel = r.get("titel") or "Namnlöst recept"
                     kategori = r.get("kategori") or "Övrigt"
+                    bild_url_d = r.get("bild_url")
                     recept_id = r.get('id')
                     
                     raw_db_text_d = r.get("text", "")
@@ -447,6 +470,9 @@ with flik3:
                         narings_del_d = ""
                     
                     with st.expander(f"📌 {titel} ({kategori})"):
+                        if bild_url_d:
+                            st.image(bild_url_d, caption="Skannat recept", width=300)
+                            
                         st.markdown(recept_text_clean_d, unsafe_allow_html=True)
                         if narings_del_d:
                             st.markdown("### 📊 Näringsinnehåll\n" + narings_del_d)
