@@ -16,7 +16,7 @@ gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY
 client = genai.Client(api_key=gemini_api_key)
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.8"
+VERSION = "v1.9"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
@@ -94,7 +94,8 @@ with flik1:
                         "Returnera svaret strikt som en JSON-struktur med följande nycklar:\n"
                         "- 'titel': Receptets namn\n"
                         "- 'kategori': Passande kategori (t.ex. Huvudrätt, Efterrätt, Bakverk)\n"
-                        "- 'text': Renskriven version av receptet med ingredienser och instruktioner.\n"
+                        "- 'text': Renskriven version av receptet med ingredienser och instruktioner. "
+                        "Använd gärna tydliga rubriker som 'Ingredienser' och 'Instruktioner'.\n"
                         "- 'naring': Ett objekt med uppskattade näringsvärden uppdelade i 'per_portion' och 'per_100g'. "
                         "Inkludera nycklarna: 'energi' (kcal/kJ), 'protein' (g), 'kolhydrater' (g), 'socker' (g), "
                         "'fett' (g), 'mattat_fett' (g), 'fiber' (g), 'salt' (g).\n"
@@ -260,7 +261,15 @@ with flik2:
                         recept_innehall = f"Recept: {titel} ({kategori})\n\n{full_visnings_text}"
                         safe_text = json.dumps(recept_innehall)
                         
-                        print_html_content = recept_text_clean.replace(chr(92), chr(92)*2).replace("'", "\\'").replace(chr(10), "<br>")
+                        # Formatera texten så att rubriker (t.ex. Ingredienser/Instruktioner) får samma stil som Näringsinnehåll
+                        formatted_print_text = (recept_text_clean
+                            .replace("Ingredienser", "<h3 style='margin-top:20px; font-size:16px;'>🛒 Ingredienser</h3>")
+                            .replace("Instruktioner", "<h3 style='margin-top:20px; font-size:16px;'>👨‍🍳 Instruktioner</h3>")
+                            .replace("Gör så här", "<h3 style='margin-top:20px; font-size:16px;'>👨‍🍳 Gör så här</h3>")
+                            .replace(chr(10), "<br>")
+                        )
+                        
+                        print_html_content = formatted_print_text.replace(chr(92), chr(92)*2).replace("'", "\\'")
                         
                         narings_html_print = ""
                         if narings_del:
@@ -272,7 +281,7 @@ with flik2:
                                     if cols:
                                         table_rows.append(cols)
                             if table_rows:
-                                narings_html_print += "<h3>📊 Näringsinnehåll</h3><table>"
+                                narings_html_print += "<h3 style='margin-top:20px; font-size:16px;'>📊 Näringsinnehåll</h3><table>"
                                 for i, row in enumerate(table_rows):
                                     tag = "th" if i == 0 else "td"
                                     narings_html_print += "<tr>"
@@ -414,7 +423,14 @@ with flik3:
                         recept_innehall_d = f"Recept: {titel} ({kategori})\n\n{full_visnings_text_d}"
                         safe_text_d = json.dumps(recept_innehall_d)
                         
-                        print_html_content_d = recept_text_clean_d.replace(chr(92), chr(92)*2).replace("'", "\\'").replace(chr(10), "<br>")
+                        formatted_print_text_d = (recept_text_clean_d
+                            .replace("Ingredienser", "<h3 style='margin-top:20px; font-size:16px;'>🛒 Ingredienser</h3>")
+                            .replace("Instruktioner", "<h3 style='margin-top:20px; font-size:16px;'>👨‍🍳 Instruktioner</h3>")
+                            .replace("Gör så här", "<h3 style='margin-top:20px; font-size:16px;'>👨‍🍳 Gör så här</h3>")
+                            .replace(chr(10), "<br>")
+                        )
+                        
+                        print_html_content_d = formatted_print_text_d.replace(chr(92), chr(92)*2).replace("'", "\\'")
                         
                         narings_html_print_d = ""
                         if narings_del_d:
@@ -426,7 +442,7 @@ with flik3:
                                     if cols:
                                         table_rows_d.append(cols)
                             if table_rows_d:
-                                narings_html_print_d += "<h3>📊 Näringsinnehåll</h3><table>"
+                                narings_html_print_d += "<h3 style='margin-top:20px; font-size:16px;'>📊 Näringsinnehåll</h3><table>"
                                 for i, row in enumerate(table_rows_d):
                                     tag = "th" if i == 0 else "td"
                                     narings_html_print_d += "<tr>"
