@@ -16,7 +16,7 @@ gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY
 client = genai.Client(api_key=gemini_api_key)
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.11"
+VERSION = "v1.12"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
@@ -249,7 +249,6 @@ with flik2:
                 if sokord.lower() in str(titel).lower() or sokord.lower() in str(recept_text_clean).lower():
                     with st.expander(f"📌 {titel} ({kategori})"):
                         
-                        # Kontrollera om användaren klickat på redigera för detta recept
                         edit_key = f"edit_mode_{recept_id}"
                         if edit_key not in st.session_state:
                             st.session_state[edit_key] = False
@@ -262,31 +261,26 @@ with flik2:
 
                         if st.session_state[edit_key]:
                             # --- REDIGERINGSVY ---
-                            with st.form(key=f"form_edit_{recept_id}"):
-                                ny_titel = st.text_input("Titel", value=titel)
-                                ny_kategori = st.text_input("Kategori", value=kategori)
-                                ny_text = st.text_area("Recepttext & Näringsinnehåll", value=raw_db_text, height=300)
-                                
-                                col_spara, col_avbryt = st.columns(2)
-                                with col_spara:
-                                    submit_sparand = st.form_submit_button("💾 Spara ändringar")
-                                with col_avbryt:
-                                    submit_avbryt = st.form_submit_button("Avbryt")
-                                    
-                                if submit_sparand:
+                            ny_titel = st.text_input("Titel", value=titel, key=f"ny_titel_{recept_id}")
+                            ny_kategori = st.text_input("Kategori", value=kategori, key=f"ny_kat_{recept_id}")
+                            ny_text = st.text_area("Recepttext & Näringsinnehåll", value=raw_db_text, height=300, key=f"ny_text_{recept_id}")
+                            
+                            col_spara, col_avbryt = st.columns(2)
+                            with col_spara:
+                                if st.button("💾 Spara ändringar", key=f"save_{recept_id}"):
                                     try:
                                         supabase.table("recept").update({
                                             "titel": ny_titel,
                                             "kategori": ny_kategori,
                                             "text": ny_text
                                         }).eq("id", recept_id).execute()
-                                        st.success("Ändringarna sparades!")
+                                        st.success("Ändringarna har sparats!")
                                         st.session_state[edit_key] = False
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"Kunde inte uppdatera: {e}")
-                                        
-                                if submit_avbryt:
+                            with col_avbryt:
+                                if st.button("Avbryt", key=f"cancel_{recept_id}"):
                                     st.session_state[edit_key] = False
                                     st.rerun()
                         else:
@@ -533,9 +527,9 @@ with flik3:
                             }}
 
                             function copyRecipe() {{
-                                const textToShare = {safe_text_d};
+                                const testToShare = {safe_text_d};
                                 const statusEl = document.getElementById('status');
-                                navigator.clipboard.writeText(textToShare).then(() => {{
+                                navigator.clipboard.writeText(testToShare).then(() => {{
                                     statusEl.innerText = 'Kopierat!';
                                     setTimeout(() => {{ statusEl.innerText = ''; }}, 2000);
                                 }});
