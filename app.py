@@ -17,7 +17,7 @@ gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY
 client = genai.Client(api_key=gemini_api_key)
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.27"
+VERSION = "v1.28"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
@@ -88,7 +88,7 @@ with flik1:
         st.image(bild, caption="Uppladdad bild (optimerad)", width=300)
         
         if st.button("Analysera recept med AI", key="btn_analysera"):
-            with st.spinner("Analyserar handstil och beräknar näringsvärden..."):
+            with st.spinner("Analyserar handstil och beräknar näringsvärden & vitaminer..."):
                 try:
                     prompt = (
                         "Analysera denna bild av ett recept. "
@@ -99,7 +99,8 @@ with flik1:
                         "Använd tydliga rubriker som '### 🛒 Ingredienser' och '### 👨‍🍳 Instruktioner'.\n"
                         "- 'naring': Ett objekt med uppskattade näringsvärden uppdelade i 'per_portion' och 'per_100g'. "
                         "Inkludera nycklarna: 'energi' (kcal/kJ), 'protein' (g), 'kolhydrater' (g), 'socker' (g), "
-                        "'fett' (g), 'mattat_fett' (g), 'fiber' (g), 'salt' (g).\n"
+                        "'fett' (g), 'mattat_fett' (g), 'fiber' (g), 'salt' (g), "
+                        "samt mikronäringsvärden: 'c_vitamin' (mg), 'd_vitamin' (µg), 'jarn' (mg).\n"
                         "Svara ENDAST med giltig JSON utan markdown-kodblock."
                     )
                     
@@ -130,29 +131,31 @@ with flik1:
             with col_kat:
                 kategori_input = st.text_input("Kategori", value=rec.get("kategori", "Övrigt"))
             
-            st.markdown("### 📊 Näringsinnehåll")
+            st.markdown("### 📊 Näringsinnehåll & Vitaminer")
             
             naring_data = rec.get("naring", {})
             p_data = naring_data.get("per_portion", {})
             h_data = naring_data.get("per_100g", {})
             
             df_naring = pd.DataFrame({
-                "Näringsämne (Makros)": [
+                "Näringsämne": [
                     "⚡ Energi", "🥩 Protein", "🍞 Kolhydrater", 
                     "varav sockerarter", "🥑 Fett", "varav mättat fett", 
-                    "🌾 Fiber", "🧂 Salt"
+                    "🌾 Fiber", "🧂 Salt", "🍊 C-vitamin", "☀️ D-vitamin", "🧲 Järn"
                 ],
                 "Per 100 g": [
                     h_data.get("energi", "-"), h_data.get("protein", "-"), 
                     h_data.get("kolhydrater", "-"), h_data.get("socker", "-"), 
                     h_data.get("fett", "-"), h_data.get("mattat_fett", "-"), 
-                    h_data.get("fiber", "-"), h_data.get("salt", "-")
+                    h_data.get("fiber", "-"), h_data.get("salt", "-"),
+                    h_data.get("c_vitamin", "-"), h_data.get("d_vitamin", "-"), h_data.get("jarn", "-")
                 ],
                 "Per Portion": [
                     p_data.get("energi", "-"), p_data.get("protein", "-"), 
                     p_data.get("kolhydrater", "-"), p_data.get("socker", "-"), 
                     p_data.get("fett", "-"), p_data.get("mattat_fett", "-"), 
-                    p_data.get("fiber", "-"), p_data.get("salt", "-")
+                    p_data.get("fiber", "-"), p_data.get("salt", "-"),
+                    p_data.get("c_vitamin", "-"), p_data.get("d_vitamin", "-"), p_data.get("jarn", "-")
                 ]
             })
             
@@ -163,13 +166,12 @@ with flik1:
             if st.button("💾 Spara till databasen", key="btn_spara"):
                 with st.spinner("Laddar upp bild och sparar recept..."):
                     try:
-                        # 1. Ladda upp bilden till Supabase Storage (OBS: Skapa en bucket som heter 'recept-bilder' i Supabase)
+                        # 1. Ladda upp bilden till Supabase Storage
                         bild_url = None
                         if uppuploadad_bild is not None:
                             file_ext = uppuploadad_bild.name.split(".")[-1]
                             file_name = f"{st.session_state['user'].id}/{uuid.uuid4()}.{file_ext}"
                             
-                            # Återställ pekaren på filen
                             uppuploadad_bild.seek(0)
                             
                             supabase.storage.from_("recept-bilder").upload(
@@ -178,14 +180,13 @@ with flik1:
                                 file_options={"content-type": f"image/{file_ext}"}
                             )
                             
-                            # Hämta publik URL för bilden
                             public_url_res = supabase.storage.from_("recept-bilder").get_public_url(file_name)
                             bild_url = public_url_res
                         
-                        # 2. Bygg ihop fulltext med näringstabell
+                        # 2. Bygg ihop fulltext med närings- och vitamintabell
                         naring_table_md = (
-                            "\n\n### 📊 Näringsinnehåll\n"
-                            "| Näringsämne (Makros) | Per 100 g | Per Portion |\n"
+                            "\n\n### 📊 Näringsinnehåll & Vitaminer\n"
+                            "| Näringsämne | Per 100 g | Per Portion |\n"
                             "| :--- | :---: | :---: |\n"
                             f"| ⚡ Energi | {h_data.get('energi', '-')} | {p_data.get('energi', '-')} |\n"
                             f"| 🥩 Protein | {h_data.get('protein', '-')} | {p_data.get('protein', '-')} |\n"
@@ -195,6 +196,9 @@ with flik1:
                             f"| varav mättat fett | {h_data.get('mattat_fett', '-')} | {p_data.get('mattat_fett', '-')} |\n"
                             f"| 🌾 Fiber | {h_data.get('fiber', '-')} | {p_data.get('fiber', '-')} |\n"
                             f"| 🧂 Salt | {h_data.get('salt', '-')} | {p_data.get('salt', '-')} |\n"
+                            f"| 🍊 C-vitamin | {h_data.get('c_vitamin', '-')} | {p_data.get('c_vitamin', '-')} |\n"
+                            f"| ☀️ D-vitamin | {h_data.get('d_vitamin', '-')} | {p_data.get('d_vitamin', '-')} |\n"
+                            f"| 🧲 Järn | {h_data.get('jarn', '-')} | {p_data.get('jarn', '-')} |\n"
                         )
                         
                         full_text = f"{text_input}{naring_table_md}"
@@ -204,7 +208,7 @@ with flik1:
                             "titel": titel_input,
                             "kategori": kategori_input,
                             "text": full_text,
-                            "bild_url": bild_url  # Sparar bildlänken i tabellen
+                            "bild_url": bild_url
                         }
                         
                         supabase.table("recept").insert(data_att_spara).execute()
@@ -265,6 +269,10 @@ with flik2:
                     delar = clean_text.split("### 📊 Näringsinnehåll")
                     recept_text_clean = delar[0].strip()
                     narings_del = delar[1].strip()
+                elif "### 📊 Näringsinnehåll & Vitaminer" in clean_text:
+                    delar = clean_text.split("### 📊 Näringsinnehåll & Vitaminer")
+                    recept_text_clean = delar[0].strip()
+                    narings_del = delar[1].strip()
                 else:
                     recept_text_clean = clean_text.strip()
                     narings_del = ""
@@ -283,7 +291,6 @@ with flik2:
                                 st.rerun()
 
                         if st.session_state[edit_key]:
-                            # --- REDIGERINGSVY ---
                             ny_titel = st.text_input("Titel", value=titel, key=f"ny_titel_{recept_id}")
                             ny_kategori = st.text_input("Kategori", value=kategori, key=f"ny_kat_{recept_id}")
                             ny_text = st.text_area("Recepttext & Näringsinnehåll", value=raw_db_text, height=300, key=f"ny_text_{recept_id}")
@@ -307,17 +314,16 @@ with flik2:
                                     st.session_state[edit_key] = False
                                     st.rerun()
                         else:
-                            # --- VANLIG VISNINGSVY ---
                             if bild_url:
                                 st.image(bild_url, caption="Skannat recept", width=300)
                                 
                             st.markdown(recept_text_clean, unsafe_allow_html=True)
                             if narings_del:
-                                st.markdown("### 📊 Näringsinnehåll\n" + narings_del)
+                                st.markdown("### 📊 Näringsinnehåll & Vitaminer\n" + narings_del)
                             
                             st.divider()
                             
-                            full_visnings_text = f"{recept_text_clean}\n\n### 📊 Näringsinnehåll\n{narings_del}" if narings_del else recept_text_clean
+                            full_visnings_text = f"{recept_text_clean}\n\n### 📊 Näringsinnehåll & Vitaminer\n{narings_del}" if narings_del else recept_text_clean
                             recept_innehall = f"Recept: {titel} ({kategori})\n\n{full_visnings_text}"
                             safe_text = json.dumps(recept_innehall)
                             
@@ -333,7 +339,7 @@ with flik2:
                                         if cols:
                                             table_rows.append(cols)
                                 if table_rows:
-                                    narings_html_print += "<h3>📊 Näringsinnehåll</h3><table>"
+                                    narings_html_print += "<h3>📊 Näringsinnehåll & Vitaminer</h3><table>"
                                     for i, row in enumerate(table_rows):
                                         tag = "th" if i == 0 else "td"
                                         narings_html_print += "<tr>"
@@ -465,6 +471,10 @@ with flik3:
                         delar_d = clean_text_d.split("### 📊 Näringsinnehåll")
                         recept_text_clean_d = delar_d[0].strip()
                         narings_del_d = delar_d[1].strip()
+                    elif "### 📊 Näringsinnehåll & Vitaminer" in clean_text_d:
+                        delar_d = clean_text_d.split("### 📊 Näringsinnehåll & Vitaminer")
+                        recept_text_clean_d = delar_d[0].strip()
+                        narings_del_d = delar_d[1].strip()
                     else:
                         recept_text_clean_d = clean_text_d.strip()
                         narings_del_d = ""
@@ -475,11 +485,11 @@ with flik3:
                             
                         st.markdown(recept_text_clean_d, unsafe_allow_html=True)
                         if narings_del_d:
-                            st.markdown("### 📊 Näringsinnehåll\n" + narings_del_d)
+                            st.markdown("### 📊 Näringsinnehåll & Vitaminer\n" + narings_del_d)
                         
                         st.divider()
                         
-                        full_visnings_text_d = f"{recept_text_clean_d}\n\n### 📊 Näringsinnehåll\n{narings_del_d}" if narings_del_d else recept_text_clean_d
+                        full_visnings_text_d = f"{recept_text_clean_d}\n\n### 📊 Näringsinnehåll & Vitaminer\n{narings_del_d}" if narings_del_d else recept_text_clean_d
                         recept_innehall_d = f"Recept: {titel} ({kategori})\n\n{full_visnings_text_d}"
                         safe_text_d = json.dumps(recept_innehall_d)
                         
@@ -495,7 +505,7 @@ with flik3:
                                     if cols:
                                         table_rows_d.append(cols)
                             if table_rows_d:
-                                narings_html_print_d += "<h3>📊 Näringsinnehåll</h3><table>"
+                                narings_html_print_d += "<h3>📊 Näringsinnehåll & Vitaminer</h3><table>"
                                 for i, row in enumerate(table_rows_d):
                                     tag = "th" if i == 0 else "td"
                                     narings_html_print_d += "<tr>"
