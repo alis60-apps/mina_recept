@@ -16,7 +16,7 @@ gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY
 client = genai.Client(api_key=gemini_api_key)
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.15"
+VERSION = "v1.16"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
@@ -356,11 +356,16 @@ with flik2:
                                         alert('Tillåt popups i webbläsaren för att skriva ut.');
                                         return;
                                     }}
-                                    win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} h3 {{ margin-top: 20px; font-size: 16px; }} table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }} th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
+                                    
+                                    let content = `{print_html_content}`;
+                                    // Byt ut ### mot snygga HTML-rubriker i utskriften
+                                    content = content.replace(/###\s*(.*?)(<br>|$)/g, '<h3 style="margin-top:20px; font-size:16px; font-weight:bold;">$1</h3>');
+
+                                    win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }} th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
                                     win.document.write('<h2>{titel}</h2>');
                                     win.document.write('<p><em>Kategori: {kategori}</em></p>');
                                     win.document.write('<hr/>');
-                                    win.document.write('<div>{print_html_content}</div>');
+                                    win.document.write('<div>' + content + '</div>');
                                     win.document.write('{narings_html_print}');
                                     win.document.write('</body></html>');
                                     win.document.close();
@@ -510,11 +515,15 @@ with flik3:
                                     alert('Tillåt popups i webbläsaren för att skriva ut.');
                                     return;
                                 }}
-                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} h3 {{ margin-top: 20px; font-size: 16px; }} table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }} th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
+                                
+                                let content = `{print_html_content_d}`;
+                                content = content.replace(/###\s*(.*?)(<br>|$)/g, '<h3 style="margin-top:20px; font-size:16px; font-weight:bold;">$1</h3>');
+
+                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }} th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
                                 win.document.write('<h2>{titel}</h2>');
                                 win.document.write('<p><em>Kategori: {kategori}</em></p>');
                                 win.document.write('<hr/>');
-                                win.document.write('<div>{print_html_content_d}</div>');
+                                win.document.write('<div>' + content + '</div>');
                                 win.document.write('{narings_html_print_d}');
                                 win.document.write('</body></html>');
                                 win.document.close();
