@@ -15,7 +15,9 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY"))
 client = genai.Client(api_key=gemini_api_key)
 
-st.title("📖 Receptboken med AI-skanning")
+# --- VERSIONSHANTERING ---
+VERSION = "v1.8"
+st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
 if "user" not in st.session_state:
@@ -270,7 +272,7 @@ with flik2:
                                     if cols:
                                         table_rows.append(cols)
                             if table_rows:
-                                narings_html_print += "<h3 style='margin-top:20px; font-size:16px;'>📊 Näringsinnehåll</h3><table>"
+                                narings_html_print += "<h3>📊 Näringsinnehåll</h3><table>"
                                 for i, row in enumerate(table_rows):
                                     tag = "th" if i == 0 else "td"
                                     narings_html_print += "<tr>"
@@ -424,7 +426,7 @@ with flik3:
                                     if cols:
                                         table_rows_d.append(cols)
                             if table_rows_d:
-                                narings_html_print_d += "<h3 style='margin-top:20px; font-size:16px;'>📊 Näringsinnehåll</h3><table>"
+                                narings_html_print_d += "<h3>📊 Näringsinnehåll</h3><table>"
                                 for i, row in enumerate(table_rows_d):
                                     tag = "th" if i == 0 else "td"
                                     narings_html_print_d += "<tr>"
