@@ -270,14 +270,14 @@ with flik2:
                                     if cols:
                                         table_rows.append(cols)
                             if table_rows:
-                                narings_html_print += "<div class='recipe-section'><h3>📊 Näringsinnehåll</h3><table>"
+                                narings_html_print += "<h3>📊 Näringsinnehåll</h3><table>"
                                 for i, row in enumerate(table_rows):
                                     tag = "th" if i == 0 else "td"
                                     narings_html_print += "<tr>"
                                     for col in row:
                                         narings_html_print += f"<{tag}>{col}</{tag}>"
                                     narings_html_print += "</tr>"
-                                narings_html_print += "</table></div>"
+                                narings_html_print += "</table>"
                         
                         print_html = f"""
                         <!DOCTYPE html>
@@ -316,9 +316,11 @@ with flik2:
                                     alert('Tillåt popups i webbläsaren för att skriva ut.');
                                     return;
                                 }}
-                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} .recipe-section {{ break-inside: avoid; page-break-inside: avoid; margin-bottom: 20px; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }} th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
-                                win.document.write('<div class="recipe-section"><h2>{titel}</h2><p><em>Kategori: {kategori}</em></p><hr/></div>');
-                                win.document.write('<div class="recipe-section"><div>{print_html_content}</div></div>');
+                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }} th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
+                                win.document.write('<h2>{titel}</h2>');
+                                win.document.write('<p><em>Kategori: {kategori}</em></p>');
+                                win.document.write('<hr/>');
+                                win.document.write('<div>{print_html_content}</div>');
                                 win.document.write('{narings_html_print}');
                                 win.document.write('</body></html>');
                                 win.document.close();
@@ -422,14 +424,14 @@ with flik3:
                                     if cols:
                                         table_rows_d.append(cols)
                             if table_rows_d:
-                                narings_html_print_d += "<div class='recipe-section'><h3>📊 Näringsinnehåll</h3><table>"
+                                narings_html_print_d += "<h3>📊 Näringsinnehåll</h3><table>"
                                 for i, row in enumerate(table_rows_d):
                                     tag = "th" if i == 0 else "td"
                                     narings_html_print_d += "<tr>"
                                     for col in row:
                                         narings_html_print_d += f"<{tag}>{col}</{tag}>"
                                     narings_html_print_d += "</tr>"
-                                narings_html_print_d += "</table></div>"
+                                narings_html_print_d += "</table>"
                         
                         print_html_d = f"""
                         <!DOCTYPE html>
@@ -468,9 +470,11 @@ with flik3:
                                     alert('Tillåt popups i webbläsaren för att skriva ut.');
                                     return;
                                 }}
-                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} .recipe-section {{ break-inside: avoid; page-break-inside: avoid; margin-bottom: 20px; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }} th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
-                                win.document.write('<div class="recipe-section"><h2>{titel}</h2><p><em>Kategori: {kategori}</em></p><hr/></div>');
-                                win.document.write('<div class="recipe-section"><div>{print_html_content_d}</div></div>');
+                                win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }} th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }} th {{ background-color: #f4f4f4; }}</style></head><body>');
+                                win.document.write('<h2>{titel}</h2>');
+                                win.document.write('<p><em>Kategori: {kategori}</em></p>');
+                                win.document.write('<hr/>');
+                                win.document.write('<div>{print_html_content_d}</div>');
                                 win.document.write('{narings_html_print_d}');
                                 win.document.write('</body></html>');
                                 win.document.close();
