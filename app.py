@@ -16,7 +16,7 @@ gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY
 client = genai.Client(api_key=gemini_api_key)
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.12"
+VERSION = "v1.13"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
@@ -103,7 +103,7 @@ with flik1:
                     )
                     
                     response = client.models.generate_content(
-                        model='gemini-2.5-flash',
+                        model='gemini-3.8-flash',
                         contents=[bild, prompt]
                     )
                     
@@ -527,9 +527,9 @@ with flik3:
                             }}
 
                             function copyRecipe() {{
-                                const testToShare = {safe_text_d};
+                                const textToShare = {safe_text_d};
                                 const statusEl = document.getElementById('status');
-                                navigator.clipboard.writeText(testToShare).then(() => {{
+                                navigator.clipboard.writeText(textToShare).then(() => {{
                                     statusEl.innerText = 'Kopierat!';
                                     setTimeout(() => {{ statusEl.innerText = ''; }}, 2000);
                                 }});
