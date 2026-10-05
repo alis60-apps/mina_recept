@@ -22,7 +22,7 @@ client = genai.Client(api_key=gemini_api_key)
 GEMINI_MODEL = "gemini-3.8-flash"
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.37"
+VERSION = "v1.38"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
@@ -421,7 +421,7 @@ with flik2:
                   df_naring_vis = pd.DataFrame({
                       "Näringsämne": [
                           "⚡ Energi",
-                          "🥩 Protein",
+                      "🥩 Protein",
                           "🍞 Kolhydrater",
                           "varav sockerarter",
                           "🥑 Fett",
@@ -463,18 +463,75 @@ with flik2:
 
               st.divider()
 
-              full_visnings_text = (
-                  f"### 🛒 Ingredienser\n{ingredients}\n\n### 👨‍🍳"
-                  f" Tillagning\n{instructions}"
+              # Bygg text för kopiering utan styrtecken och med näringsvärden
+              naring_text_lines = []
+              if nutrition_dict and isinstance(nutrition_dict, dict):
+                p_data_c = nutrition_dict.get("per_portion", {})
+                h_data_c = nutrition_dict.get("per_100g", {})
+                n_items = [
+                    ("Energi", "energi"),
+                    ("Protein", "protein"),
+                    ("Kolhydrater", "kolhydrater"),
+                    ("varav sockerarter", "socker"),
+                    ("Fett", "fett"),
+                    ("varav mättat fett", "mattat_fett"),
+                    ("Fiber", "fiber"),
+                    ("Salt", "salt"),
+                    ("C-vitamin", "c_vitamin"),
+                    ("D-vitamin", "d_vitamin"),
+                    ("Järn", "jarn"),
+                ]
+                for lbl, ky in n_items:
+                  hv = h_data_c.get(ky, "-")
+                  pv = p_data_c.get(ky, "-")
+                  if hv != "-" or pv != "-":
+                    naring_text_lines.append(
+                        f" - {lbl}: {hv} per 100g, {pv} per portion"
+                    )
+
+              naring_copy_block = (
+                  "\n\nNäringsinnehåll & Vitaminer:\n"
+                  + "\n".join(naring_text_lines)
+                  if naring_text_lines
+                  else ""
               )
               recept_innehall = (
-                  f"Recept: {titel} ({kategori})\n\n{full_visnings_text}"
+                  f"Recept: {titel}\nKategori:"
+                  f" {kategori}\n\nIngredienser:\n{ingredients}\n\nTillagning:\n{instructions}{naring_copy_block}"
               )
               safe_text = json.dumps(recept_innehall)
+
+              # Bygg HTML för utskrift inklusive näringstabell
+              print_naring_html = ""
+              if nutrition_dict and isinstance(nutrition_dict, dict):
+                p_data_p = nutrition_dict.get("per_portion", {})
+                h_data_p = nutrition_dict.get("per_100g", {})
+                if p_data_p or h_data_p:
+                  print_naring_html = """
+                                    <h3 style="margin-top: 25px; font-size: 16px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">📊 Näringsinnehåll & Vitaminer</h3>
+                                    <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px;">
+                                        <tr style="background-color: #f2f2f2; border-bottom: 1px solid #ddd;">
+                                            <th style="text-align: left; padding: 6px;">Näringsämne</th>
+                                            <th style="text-align: left; padding: 6px;">Per 100 g</th>
+                                            <th style="text-align: left; padding: 6px;">Per Portion</th>
+                                        </tr>
+                                    """
+                  for lbl, ky in n_items:
+                    hv = h_data_p.get(ky, "-")
+                    pv = p_data_p.get(ky, "-")
+                    print_naring_html += f"""
+                                        <tr style="border-bottom: 1px solid #eee;">
+                                            <td style="padding: 5px;">{lbl}</td>
+                                            <td style="padding: 5px;">{hv}</td>
+                                            <td style="padding: 5px;">{pv}</td>
+                                        </tr>
+                                        """
+                  print_naring_html += "</table>"
 
               print_html_content = (
                   f"<h3>🛒 Ingredienser</h3><p>{ingredients.replace(chr(10), '<br>')}</p>"
                   f"<h3>👨‍🍳 Tillagning</h3><p>{instructions.replace(chr(10), '<br>')}</p>"
+                  f"{print_naring_html}"
               )
 
               print_html = f"""
@@ -515,7 +572,7 @@ with flik2:
                                         return;
                                     }}
                                     
-                                    win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} h3 {{ margin-top: 20px; font-size: 16px; }}</style></head><body>');
+                                    win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} h3 {{ margin-top: 20px; font-size: 16px; color: #222; }} table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }} th, td {{ border-bottom: 1px solid #eee; padding: 6px; text-align: left; }} th {{ background-color: #f9f9f9; }}</style></head><body>');
                                     win.document.write('<h2>{titel}</h2>');
                                     win.document.write('<p><em>Kategori: {kategori}</em></p>');
                                     win.document.write('<hr/>');
