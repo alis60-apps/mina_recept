@@ -18,17 +18,17 @@ gemini_api_key = st.secrets.get(
 )
 client = genai.Client(api_key=gemini_api_key)
 
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.8-flash"
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.45"
+VERSION = "v1.41"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
 if "user" not in st.session_state:
   st.session_state["user"] = None
 
-if st.session_state["user"] is None:
+if not st.session_state["user"]:
   st.subheader("🔑 Logga in")
 
   with st.form("login_form"):
@@ -52,12 +52,9 @@ if st.session_state["user"] is None:
             "email": email,
             "password": password,
         })
-        if auth_res.user:
-          st.session_state["user"] = auth_res.user
-          st.success("Inloggad!")
-          st.rerun()
-        else:
-          st.error("Kunde inte verifiera användaren.")
+        st.session_state["user"] = auth_res.user
+        st.success("Inloggad!")
+        st.rerun()
       except Exception as e:
         st.error(f"Fel vid inloggning: {e}")
 
@@ -73,17 +70,7 @@ if st.session_state["user"] is None:
 # --- SIDOMENY (SIDEBAR) ---
 with st.sidebar:
   st.header("⚙️ Konto & Inställningar")
-  if st.session_state["user"]:
-    st.write(f"Inloggad som:\n**{st.session_state['user'].email}**")
-
-  st.divider()
-
-  # Ny knapp för att tvinga rensning av cache på mobilen
-  if st.button("🔄 Tvinga omstart / Rensa cache"):
-    st.cache_data.clear()
-    for key in list(st.session_state.keys()):
-      del st.session_state[key]
-    st.rerun()
+  st.write(f"Inloggad som:\n**{st.session_state['user'].email}**")
 
   st.divider()
 
@@ -147,6 +134,7 @@ with st.sidebar:
           book_name_dict[uid] = b_namn
         användare_dict[uid].append(rec)
 
+      # Lägg till ett alternativ för att visa egna boken
       options_list = [None] + list(användare_dict.keys())
 
       def format_func(x):
@@ -171,19 +159,17 @@ with st.sidebar:
   st.divider()
 
   if st.button("Logga ut", type="secondary"):
-    try:
-      supabase.auth.sign_out()
-    except:
-      pass
+    supabase.auth.sign_out()
     st.session_state["user"] = None
     st.rerun()
 
 if "uploader_key" not in st.session_state:
   st.session_state["uploader_key"] = 0
 
+# Hämta vald delad användare från session state
 aktiv_delad_användare = st.session_state.get("vald_delad_användare", None)
 
-# --- OM EN DELAD BOK ÄR VALD ---
+# --- OM EN DELAD BOK ÄR VALD I SIDOMENYN ---
 if aktiv_delad_användare:
   b_namn = st.session_state["book_name_dict"].get(
       aktiv_delad_användare, "Receptbok"
@@ -270,7 +256,7 @@ if aktiv_delad_användare:
             st.table(df_naring_vis_d)
 
 else:
-  # --- VANLIGA HUVUDAPPEN (MIN BOK) ---
+  # --- VANLIGA HUVUDAPPEN (INA BOKEN) ---
   flik1, flik2 = st.tabs(["📷 Skanna Recept", "📚 Mina Recept"])
 
   with flik1:
@@ -299,13 +285,15 @@ else:
                 "- 'title': Receptets namn\n"
                 "- 'category': Passande kategori (t.ex. Huvudrätt, Efterrätt,"
                 " Bakverk)\n"
-                "- 'ingredients': Ingredienslistan som en vanlig textsträng\n"
-                "- 'instructions': Endast tillagningsstegen renskrivna\n"
+                "- 'ingredients': Endast ingredienslistan renskriven (sträng).\n"
+                "- 'instructions': Endast tillagningsstegen renskrivna (sträng,"
+                " helt fri från näringsrubriker).\n"
                 "- 'nutrition': Ett objekt med uppskattade näringsvärden"
                 " uppdelade i 'per_portion' och 'per_100g'. Inkludera nycklarna:"
-                " 'energi', 'protein', 'kolhydrater', 'socker', 'fett',"
-                " 'mattat_fett', 'fiber', 'salt', 'c_vitamin', 'd_vitamin',"
-                " 'jarn'.\n"
+                " 'energi' (kcal/kJ), 'protein' (g), 'kolhydrater' (g), 'socker'"
+                " (g), 'fett' (g), 'mattat_fett' (g), 'fiber' (g), 'salt' (g),"
+                " samt mikronäringsvärden: 'c_vitamin' (mg), 'd_vitamin' (µg),"
+                " 'jarn' (mg).\n"
                 "Svara ENDAST med giltig JSON utan markdown-kodblock."
             )
 
@@ -324,7 +312,10 @@ else:
             st.success("Receptet har analyserats!")
 
           except Exception as e:
-            st.error(f"Ett fel uppstod vid anropet till Gemini: {e}")
+            st.error(
+                f"Ett fel uppstod vid anropet till Gemini (modell:"
+                f" {GEMINI_MODEL}): {e}"
+            )
 
       if "analyserat_recept" in st.session_state:
         rec = st.session_state["analyserat_recept"]
@@ -363,7 +354,7 @@ else:
                 "🌾 Fiber",
                 "🧂 Salt",
                 "🍊 C-vitamin",
-                "☀️ D-vitamin",
+                "☀ D-vitamin",
                 "🧲 Järn",
             ],
             "Per 100 g": [
@@ -422,15 +413,21 @@ else:
                 file_name = (
                     f"{st.session_state['user'].id}/{uuid.uuid4()}.{file_ext}"
                 )
+
                 uppuploadad_bild.seek(0)
+
                 supabase.storage.from_("recept-bilder").upload(
                     path=file_name,
                     file=uppuploadad_bild.getvalue(),
                     file_options={"content-type": f"image/{file_ext}"},
                 )
-                image_url = supabase.storage.from_(
-                    "recept-bilder"
-                ).get_public_url(file_name)
+
+                public_url_res = (
+                    supabase.storage.from_("recept-bilder").get_public_url(
+                        file_name
+                    )
+                )
+                image_url = public_url_res
 
               data_att_spara = {
                   "user_id": st.session_state["user"].id,
@@ -449,6 +446,7 @@ else:
 
               del st.session_state["analyserat_recept"]
               st.session_state["uploader_key"] += 1
+
               st.rerun()
             except Exception as e:
               st.error(f"Kunde inte spara till databasen: {e}")
@@ -472,16 +470,18 @@ else:
         for r in recept_lista:
           titel = r.get("title") or r.get("titel") or "Namnlöst recept"
           kategori = r.get("category") or r.get("kategori") or "Övrigt"
-          ingredients = r.get("ingredients") or r.get("text") or ""
+          ingredients = r.get("ingredients") or ""
           instructions = r.get("instructions") or ""
+
+          if not ingredients and not instructions and r.get("text"):
+            ingredients = r.get("text")
 
           image_url = r.get("image_url")
           recept_id = r.get("id")
           nutrition_dict = r.get("nutrition_json") or {}
 
           if (
-              not sokord
-              or sokord.lower() in str(titel).lower()
+              sokord.lower() in str(titel).lower()
               or sokord.lower() in str(ingredients).lower()
               or sokord.lower() in str(instructions).lower()
           ):
@@ -583,7 +583,7 @@ else:
                             p_data.get("energi", "-"),
                             p_data.get("protein", "-"),
                             p_data.get("kolhydrater", "-"),
-                            p_data.get("kolhydrater", "-"),  # Justerat
+                            p_data.get("socker", "-"),
                             p_data.get("fett", "-"),
                             p_data.get("mattat_fett", "-"),
                             p_data.get("fiber", "-"),
@@ -597,6 +597,8 @@ else:
 
                 st.divider()
 
+                # Förbered kopieringstext
+                naring_text_lines = []
                 n_items = [
                     ("Energi", "energi"),
                     ("Protein", "protein"),
@@ -611,7 +613,6 @@ else:
                     ("Järn", "jarn"),
                 ]
 
-                naring_text_lines = []
                 if nutrition_dict and isinstance(nutrition_dict, dict):
                   p_data_c = nutrition_dict.get("per_portion", {})
                   h_data_c = nutrition_dict.get("per_100g", {})
@@ -635,6 +636,7 @@ else:
                 )
                 safe_text = json.dumps(recept_innehall)
 
+                # Bygg HTML för utskrift
                 print_naring_html = ""
                 if nutrition_dict and isinstance(nutrition_dict, dict):
                   p_data_p = nutrition_dict.get("per_portion", {})
@@ -708,7 +710,9 @@ else:
                                           alert('Tillåt popups i webbläsaren för att skriva ut.');
                                           return;
                                       }}
+                                      
                                       const htmlBody = {safe_print_html};
+                                      
                                       win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} h3 {{ margin-top: 20px; font-size: 16px; color: #222; }} table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }} th, td {{ border-bottom: 1px solid #eee; padding: 6px; text-align: left; }} th {{ background-color: #f9f9f9; }}</style></head><body>');
                                       win.document.write('<h2>{titel}</h2>');
                                       win.document.write('<p><em>Kategori: {kategori}</em></p>');
@@ -717,6 +721,7 @@ else:
                                       win.document.write('</body></html>');
                                       win.document.close();
                                       win.focus();
+                                      
                                       setTimeout(() => {{
                                           win.print();
                                           win.close();
