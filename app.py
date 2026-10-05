@@ -21,7 +21,7 @@ client = genai.Client(api_key=gemini_api_key)
 GEMINI_MODEL = "gemini-3.8-flash"
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.41"
+VERSION = "v1.42"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
@@ -134,7 +134,6 @@ with st.sidebar:
           book_name_dict[uid] = b_namn
         användare_dict[uid].append(rec)
 
-      # Lägg till ett alternativ för att visa egna boken
       options_list = [None] + list(användare_dict.keys())
 
       def format_func(x):
@@ -166,7 +165,6 @@ with st.sidebar:
 if "uploader_key" not in st.session_state:
   st.session_state["uploader_key"] = 0
 
-# Hämta vald delad användare från session state
 aktiv_delad_användare = st.session_state.get("vald_delad_användare", None)
 
 # --- OM EN DELAD BOK ÄR VALD I SIDOMENYN ---
@@ -256,7 +254,7 @@ if aktiv_delad_användare:
             st.table(df_naring_vis_d)
 
 else:
-  # --- VANLIGA HUVUDAPPEN (INA BOKEN) ---
+  # --- VANLIGA HUVUDAPPEN (MIN BOK) ---
   flik1, flik2 = st.tabs(["📷 Skanna Recept", "📚 Mina Recept"])
 
   with flik1:
@@ -285,7 +283,9 @@ else:
                 "- 'title': Receptets namn\n"
                 "- 'category': Passande kategori (t.ex. Huvudrätt, Efterrätt,"
                 " Bakverk)\n"
-                "- 'ingredients': Endast ingredienslistan renskriven (sträng).\n"
+                "- 'ingredients': Ingredienslistan formaterad som en sträng där"
+                " VARJE ingrediens ligger på en egen ny rad (med bindestreck eller"
+                " punkt i början, t.ex. '- 2 st ägg').\n"
                 "- 'instructions': Endast tillagningsstegen renskrivna (sträng,"
                 " helt fri från näringsrubriker).\n"
                 "- 'nutrition': Ett objekt med uppskattade näringsvärden"
@@ -331,7 +331,9 @@ else:
           )
 
         ingredients_input = st.text_area(
-            "Ingredienser", value=rec.get("ingredients", ""), height=150
+            "Ingredienser (en på varje rad)",
+            value=rec.get("ingredients", ""),
+            height=150,
         )
         instructions_input = st.text_area(
             "Tillagningssteg", value=rec.get("instructions", ""), height=150
@@ -597,7 +599,6 @@ else:
 
                 st.divider()
 
-                # Förbered kopieringstext
                 naring_text_lines = []
                 n_items = [
                     ("Energi", "energi"),
@@ -636,7 +637,6 @@ else:
                 )
                 safe_text = json.dumps(recept_innehall)
 
-                # Bygg HTML för utskrift
                 print_naring_html = ""
                 if nutrition_dict and isinstance(nutrition_dict, dict):
                   p_data_p = nutrition_dict.get("per_portion", {})
