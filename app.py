@@ -22,7 +22,7 @@ client = genai.Client(api_key=gemini_api_key)
 GEMINI_MODEL = "gemini-3.8-flash"
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.38"
+VERSION = "v1.39"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
@@ -421,7 +421,7 @@ with flik2:
                   df_naring_vis = pd.DataFrame({
                       "Näringsämne": [
                           "⚡ Energi",
-                      "🥩 Protein",
+                          "🥩 Protein",
                           "🍞 Kolhydrater",
                           "varav sockerarter",
                           "🥑 Fett",
@@ -463,24 +463,25 @@ with flik2:
 
               st.divider()
 
-              # Bygg text för kopiering utan styrtecken och med näringsvärden
+              # Förbered kopieringstext (snygg text utan styrtecken + näringsvärden)
               naring_text_lines = []
+              n_items = [
+                  ("Energi", "energi"),
+                  ("Protein", "protein"),
+                  ("Kolhydrater", "kolhydrater"),
+                  ("varav sockerarter", "socker"),
+                  ("Fett", "fett"),
+                  ("varav mättat fett", "mattat_fett"),
+                  ("Fiber", "fiber"),
+                  ("Salt", "salt"),
+                  ("C-vitamin", "c_vitamin"),
+                  ("D-vitamin", "d_vitamin"),
+                  ("Järn", "jarn"),
+              ]
+
               if nutrition_dict and isinstance(nutrition_dict, dict):
                 p_data_c = nutrition_dict.get("per_portion", {})
                 h_data_c = nutrition_dict.get("per_100g", {})
-                n_items = [
-                    ("Energi", "energi"),
-                    ("Protein", "protein"),
-                    ("Kolhydrater", "kolhydrater"),
-                    ("varav sockerarter", "socker"),
-                    ("Fett", "fett"),
-                    ("varav mättat fett", "mattat_fett"),
-                    ("Fiber", "fiber"),
-                    ("Salt", "salt"),
-                    ("C-vitamin", "c_vitamin"),
-                    ("D-vitamin", "d_vitamin"),
-                    ("Järn", "jarn"),
-                ]
                 for lbl, ky in n_items:
                   hv = h_data_c.get(ky, "-")
                   pv = p_data_c.get(ky, "-")
@@ -509,12 +510,15 @@ with flik2:
                 if p_data_p or h_data_p:
                   print_naring_html = """
                                     <h3 style="margin-top: 25px; font-size: 16px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">📊 Näringsinnehåll & Vitaminer</h3>
-                                    <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px;">
-                                        <tr style="background-color: #f2f2f2; border-bottom: 1px solid #ddd;">
-                                            <th style="text-align: left; padding: 6px;">Näringsämne</th>
-                                            <th style="text-align: left; padding: 6px;">Per 100 g</th>
-                                            <th style="text-align: left; padding: 6px;">Per Portion</th>
-                                        </tr>
+                                    <table>
+                                        <thead>
+                                            <tr style="background-color: #f2f2f2; border-bottom: 1px solid #ddd;">
+                                                <th style="text-align: left; padding: 6px;">Näringsämne</th>
+                                                <th style="text-align: left; padding: 6px;">Per 100 g</th>
+                                                <th style="text-align: left; padding: 6px;">Per Portion</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
                                     """
                   for lbl, ky in n_items:
                     hv = h_data_p.get(ky, "-")
@@ -526,13 +530,14 @@ with flik2:
                                             <td style="padding: 5px;">{pv}</td>
                                         </tr>
                                         """
-                  print_naring_html += "</table>"
+                  print_naring_html += "</tbody></table>"
 
               print_html_content = (
                   f"<h3>🛒 Ingredienser</h3><p>{ingredients.replace(chr(10), '<br>')}</p>"
                   f"<h3>👨‍🍳 Tillagning</h3><p>{instructions.replace(chr(10), '<br>')}</p>"
                   f"{print_naring_html}"
               )
+              safe_print_html = json.dumps(print_html_content)
 
               print_html = f"""
                             <!DOCTYPE html>
@@ -572,11 +577,13 @@ with flik2:
                                         return;
                                     }}
                                     
+                                    const htmlBody = {safe_print_html};
+                                    
                                     win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} h3 {{ margin-top: 20px; font-size: 16px; color: #222; }} table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }} th, td {{ border-bottom: 1px solid #eee; padding: 6px; text-align: left; }} th {{ background-color: #f9f9f9; }}</style></head><body>');
                                     win.document.write('<h2>{titel}</h2>');
                                     win.document.write('<p><em>Kategori: {kategori}</em></p>');
                                     win.document.write('<hr/>');
-                                    win.document.write('<div>{print_html_content}</div>');
+                                    win.document.write('<div>' + htmlBody + '</div>');
                                     win.document.write('</body></html>');
                                     win.document.close();
                                     win.focus();
