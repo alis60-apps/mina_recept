@@ -18,11 +18,11 @@ gemini_api_key = st.secrets.get(
 )
 client = genai.Client(api_key=gemini_api_key)
 
-# HÄR STYR DU MODELLEN TILL 3.8-FLASH ENLIGT FELMEDDELANDET:
+# HÄR STYR DU MODELLEN TILL 3.8-FLASH:
 GEMINI_MODEL = "gemini-3.8-flash"
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.35"
+VERSION = "v1.36"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
@@ -126,7 +126,6 @@ with flik1:
               "Svara ENDAST med giltig JSON utan markdown-kodblock."
           )
 
-          # Använder den uppdaterade modellen här
           response = client.models.generate_content(
               model=GEMINI_MODEL, contents=[bild, prompt]
           )
@@ -222,16 +221,16 @@ with flik1:
           try:
             existing_meta = (
                 supabase.table("recept")
-                .select("bok_namn, is_public")
+                .select("book_name, is_public")
                 .eq("user_id", st.session_state["user"].id)
                 .limit(1)
                 .execute()
             )
-            current_bok_namn = "Anonymkokboken"
+            current_book_name = "Anonymkokboken"
             current_is_public = False
             if existing_meta.data and len(existing_meta.data) > 0:
-              current_bok_namn = (
-                  existing_meta.data[0].get("bok_namn") or "Anonymkokboken"
+              current_book_name = (
+                  existing_meta.data[0].get("book_name") or "Anonymkokboken"
               )
               current_is_public = bool(
                   existing_meta.data[0].get("is_public", False)
@@ -266,7 +265,7 @@ with flik1:
                 "nutrition_json": naring_data,
                 "bild_url": bild_url,
                 "is_public": current_is_public,
-                "bok_namn": current_bok_namn,
+                "book_name": current_book_name,
             }
 
             supabase.table("recept").insert(data_att_spara).execute()
@@ -284,25 +283,25 @@ with flik2:
 
   with st.expander("⚙ Inställningar för delning & Namn"):
     nuvarande_status = False
-    nuvarande_bok_namn = "Min Receptbok"
+    nuvarande_book_name = "Min Receptbok"
     try:
       user_check = (
           supabase.table("recept")
-          .select("is_public, bok_namn")
+          .select("is_public, book_name")
           .eq("user_id", st.session_state["user"].id)
           .limit(1)
           .execute()
       )
       if user_check.data and len(user_check.data) > 0:
         nuvarande_status = bool(user_check.data[0].get("is_public", False))
-        nuvarande_bok_namn = (
-            user_check.data[0].get("bok_namn") or "Min Receptbok"
+        nuvarande_book_name = (
+            user_check.data[0].get("book_name") or "Min Receptbok"
         )
     except Exception as e:
       pass
 
-    input_bok_namn = st.text_input(
-        "Namn på din receptbok (visas för andra)", value=nuvarande_bok_namn
+    input_book_name = st.text_input(
+        "Namn på din receptbok (visas för andra)", value=nuvarande_book_name
     )
     gör_publik = st.checkbox(
         "🌍 Gör hela min receptbok publik (synlig under Delade böcker)",
@@ -313,7 +312,7 @@ with flik2:
       try:
         supabase.table("recept").update({
             "is_public": gör_publik,
-            "bok_namn": input_bok_namn,
+            "book_name": input_book_name,
         }).eq("user_id", st.session_state["user"].id).execute()
         st.success("Inställningarna har sparats!")
         st.rerun()
@@ -572,26 +571,26 @@ with flik3:
       st.info("Inga publika receptböcker hittades just nu.")
     else:
       användare_dict = {}
-      bok_namn_dict = {}
+      book_name_dict = {}
       for rec in publika_recept:
         uid = rec.get("user_id")
-        b_namn = rec.get("bok_namn") or f"Receptbok ({uid[:6]}...)"
+        b_namn = rec.get("book_name") or f"Receptbok ({uid[:6]}...)"
         if uid not in användare_dict:
           användare_dict[uid] = []
-          bok_namn_dict[uid] = b_namn
+          book_name_dict[uid] = b_namn
         användare_dict[uid].append(rec)
 
       vald_användare = st.selectbox(
           "Välj receptbok att kika i:",
           options=list(användare_dict.keys()),
-          format_func=lambda x: f"📖 {bok_namn_dict.get(x, 'Receptbok')}",
+          format_func=lambda x: f"📖 {book_name_dict.get(x, 'Receptbok')}",
       )
 
       if vald_användare:
         st.divider()
         st.subheader(
             "📖 Receptsamling:"
-            f" {bok_namn_dict.get(vald_användare, 'Receptbok')}"
+            f" {book_name_dict.get(vald_användare, 'Receptbok')}"
         )
 
         for r in användare_dict[vald_användare]:
@@ -628,7 +627,7 @@ with flik3:
                         "🌾 Fiber",
                         "🧂 Salt",
                         "🍊 C-vitamin",
-                        "☀️ D-vitamin",
+                        "☀️️ D-vitamin",
                         "🧲 Järn",
                     ],
                     "Per 100 g": [
