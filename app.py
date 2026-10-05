@@ -21,14 +21,15 @@ client = genai.Client(api_key=gemini_api_key)
 GEMINI_MODEL = "gemini-3.8-flash"
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.42"
+VERSION = "v1.43"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
 if "user" not in st.session_state:
   st.session_state["user"] = None
 
-if not st.session_state["user"]:
+# Om vi har sparad session i Supabase, säkerställ att den är aktiv
+if st.session_state["user"] is None:
   st.subheader("🔑 Logga in")
 
   with st.form("login_form"):
@@ -52,9 +53,12 @@ if not st.session_state["user"]:
             "email": email,
             "password": password,
         })
-        st.session_state["user"] = auth_res.user
-        st.success("Inloggad!")
-        st.rerun()
+        if auth_res.user:
+          st.session_state["user"] = auth_res.user
+          st.success("Inloggad!")
+          st.rerun()
+        else:
+          st.error("Kunde inte verifiera användaren.")
       except Exception as e:
         st.error(f"Fel vid inloggning: {e}")
 
@@ -70,7 +74,8 @@ if not st.session_state["user"]:
 # --- SIDOMENY (SIDEBAR) ---
 with st.sidebar:
   st.header("⚙️ Konto & Inställningar")
-  st.write(f"Inloggad som:\n**{st.session_state['user'].email}**")
+  if st.session_state["user"]:
+    st.write(f"Inloggad som:\n**{st.session_state['user'].email}**")
 
   st.divider()
 
@@ -158,7 +163,10 @@ with st.sidebar:
   st.divider()
 
   if st.button("Logga ut", type="secondary"):
-    supabase.auth.sign_out()
+    try:
+      supabase.auth.sign_out()
+    except:
+      pass
     st.session_state["user"] = None
     st.rerun()
 
@@ -483,7 +491,8 @@ else:
           nutrition_dict = r.get("nutrition_json") or {}
 
           if (
-              sokord.lower() in str(titel).lower()
+              not sokord
+              or sokord.lower() in str(titel).lower()
               or sokord.lower() in str(ingredients).lower()
               or sokord.lower() in str(instructions).lower()
           ):
