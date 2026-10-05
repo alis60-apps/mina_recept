@@ -18,10 +18,10 @@ gemini_api_key = st.secrets.get(
 )
 client = genai.Client(api_key=gemini_api_key)
 
-GEMINI_MODEL = "gemini-3.8-flash"
+GEMINI_MODEL = "gemini-2.5-flash"
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.44"
+VERSION = "v1.45"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
@@ -75,6 +75,15 @@ with st.sidebar:
   st.header("⚙️ Konto & Inställningar")
   if st.session_state["user"]:
     st.write(f"Inloggad som:\n**{st.session_state['user'].email}**")
+
+  st.divider()
+
+  # Ny knapp för att tvinga rensning av cache på mobilen
+  if st.button("🔄 Tvinga omstart / Rensa cache"):
+    st.cache_data.clear()
+    for key in list(st.session_state.keys()):
+      del st.session_state[key]
+    st.rerun()
 
   st.divider()
 
@@ -574,7 +583,7 @@ else:
                             p_data.get("energi", "-"),
                             p_data.get("protein", "-"),
                             p_data.get("kolhydrater", "-"),
-                            p_data.get("socker", "-"),
+                            p_data.get("kolhydrater", "-"),  # Justerat
                             p_data.get("fett", "-"),
                             p_data.get("mattat_fett", "-"),
                             p_data.get("fiber", "-"),
