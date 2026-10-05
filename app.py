@@ -18,11 +18,10 @@ gemini_api_key = st.secrets.get(
 )
 client = genai.Client(api_key=gemini_api_key)
 
-# Modellnamn enligt felmeddelandet:
 GEMINI_MODEL = "gemini-3.8-flash"
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.39"
+VERSION = "v1.40"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
@@ -68,17 +67,58 @@ if not st.session_state["user"]:
 
   st.stop()
 
-# Status för inloggad användare
-col_user, col_logout = st.columns([3, 1])
-with col_user:
-  st.write(f"Inloggad som: **{st.session_state['user'].email}**")
-with col_logout:
-  if st.button("Logga ut"):
+# --- SIDOMENY (SIDEBAR) FÖR INSTÄLLNINGAR & KONTO ---
+with st.sidebar:
+  st.header("⚙️ Konto & Inställningar")
+  st.write(f"Inloggad som:\n**{st.session_state['user'].email}**")
+
+  st.divider()
+
+  st.subheader("Delningsinställningar")
+  nuvarande_status = False
+  nuvarande_book_name = "Min Receptbok"
+  try:
+    user_check = (
+        supabase.table("recept")
+        .select("is_public, book_name")
+        .eq("user_id", st.session_state["user"].id)
+        .limit(1)
+        .execute()
+    )
+    if user_check.data and len(user_check.data) > 0:
+      nuvarande_status = bool(user_check.data[0].get("is_public", False))
+      nuvarande_book_name = (
+          user_check.data[0].get("book_name") or "Min Receptbok"
+      )
+  except Exception as e:
+    pass
+
+  input_book_name = st.text_input(
+      "Namn på din receptbok", value=nuvarande_book_name
+  )
+  gör_publik = st.checkbox(
+      "🌍 Gör hela receptboken publik",
+      value=nuvarande_status,
+      help="Synlig under fliken 'Delade Böcker'",
+  )
+
+  if st.button("Spara inställningar"):
+    try:
+      supabase.table("recept").update({
+          "is_public": gör_publik,
+          "book_name": input_book_name,
+      }).eq("user_id", st.session_state["user"].id).execute()
+      st.success("Inställningarna har sparats!")
+      st.rerun()
+    except Exception as e:
+      st.error(f"Kunde inte uppdatera: {e}")
+
+  st.divider()
+
+  if st.button("Logga ut", type="secondary"):
     supabase.auth.sign_out()
     st.session_state["user"] = None
     st.rerun()
-
-st.divider()
 
 if "uploader_key" not in st.session_state:
   st.session_state["uploader_key"] = 0
@@ -280,45 +320,6 @@ with flik1:
 
 with flik2:
   st.header("Mina sparade recept")
-
-  with st.expander("⚙ Inställningar för delning & Namn"):
-    nuvarande_status = False
-    nuvarande_book_name = "Min Receptbok"
-    try:
-      user_check = (
-          supabase.table("recept")
-          .select("is_public, book_name")
-          .eq("user_id", st.session_state["user"].id)
-          .limit(1)
-          .execute()
-      )
-      if user_check.data and len(user_check.data) > 0:
-        nuvarande_status = bool(user_check.data[0].get("is_public", False))
-        nuvarande_book_name = (
-            user_check.data[0].get("book_name") or "Min Receptbok"
-        )
-    except Exception as e:
-      pass
-
-    input_book_name = st.text_input(
-        "Namn på din receptbok (visas för andra)", value=nuvarande_book_name
-    )
-    gör_publik = st.checkbox(
-        "🌍 Gör hela min receptbok publik (synlig under Delade böcker)",
-        value=nuvarande_status,
-    )
-
-    if st.button("Uppdatera delningsinställningar"):
-      try:
-        supabase.table("recept").update({
-            "is_public": gör_publik,
-            "book_name": input_book_name,
-        }).eq("user_id", st.session_state["user"].id).execute()
-        st.success("Inställningarna har sparats!")
-        st.rerun()
-      except Exception as e:
-        st.error(f"Kunde inte uppdatera inställningar: {e}")
-
   sokord = st.text_input("🔍 Sök i dina recept...", "", key="sok_recept")
 
   try:
@@ -359,7 +360,7 @@ with flik2:
             col_visa1, col_visa2 = st.columns([10, 2])
             with col_visa2:
               if st.button(
-                  "✏️ Redigera", key=f"btn_toggle_edit_{recept_id}"
+                  "✏️️ Redigera", key=f"btn_toggle_edit_{recept_id}"
               ):
                 st.session_state[edit_key] = not st.session_state[edit_key]
                 st.rerun()
@@ -463,7 +464,7 @@ with flik2:
 
               st.divider()
 
-              # Förbered kopieringstext (snygg text utan styrtecken + näringsvärden)
+              # Förbered kopieringstext
               naring_text_lines = []
               n_items = [
                   ("Energi", "energi"),
@@ -502,7 +503,7 @@ with flik2:
               )
               safe_text = json.dumps(recept_innehall)
 
-              # Bygg HTML för utskrift inklusive näringstabell
+              # Bygg HTML för utskrift
               print_naring_html = ""
               if nutrition_dict and isinstance(nutrition_dict, dict):
                 p_data_p = nutrition_dict.get("per_portion", {})
