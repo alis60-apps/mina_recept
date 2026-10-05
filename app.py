@@ -21,14 +21,13 @@ client = genai.Client(api_key=gemini_api_key)
 GEMINI_MODEL = "gemini-3.8-flash"
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.43"
+VERSION = "v1.44"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
 if "user" not in st.session_state:
   st.session_state["user"] = None
 
-# Om vi har sparad session i Supabase, säkerställ att den är aktiv
 if st.session_state["user"] is None:
   st.subheader("🔑 Logga in")
 
@@ -175,7 +174,7 @@ if "uploader_key" not in st.session_state:
 
 aktiv_delad_användare = st.session_state.get("vald_delad_användare", None)
 
-# --- OM EN DELAD BOK ÄR VALD I SIDOMENYN ---
+# --- OM EN DELAD BOK ÄR VALD ---
 if aktiv_delad_användare:
   b_namn = st.session_state["book_name_dict"].get(
       aktiv_delad_användare, "Receptbok"
@@ -291,17 +290,13 @@ else:
                 "- 'title': Receptets namn\n"
                 "- 'category': Passande kategori (t.ex. Huvudrätt, Efterrätt,"
                 " Bakverk)\n"
-                "- 'ingredients': Ingredienslistan formaterad som en sträng där"
-                " VARJE ingrediens ligger på en egen ny rad (med bindestreck eller"
-                " punkt i början, t.ex. '- 2 st ägg').\n"
-                "- 'instructions': Endast tillagningsstegen renskrivna (sträng,"
-                " helt fri från näringsrubriker).\n"
+                "- 'ingredients': Ingredienslistan som en vanlig textsträng\n"
+                "- 'instructions': Endast tillagningsstegen renskrivna\n"
                 "- 'nutrition': Ett objekt med uppskattade näringsvärden"
                 " uppdelade i 'per_portion' och 'per_100g'. Inkludera nycklarna:"
-                " 'energi' (kcal/kJ), 'protein' (g), 'kolhydrater' (g), 'socker'"
-                " (g), 'fett' (g), 'mattat_fett' (g), 'fiber' (g), 'salt' (g),"
-                " samt mikronäringsvärden: 'c_vitamin' (mg), 'd_vitamin' (µg),"
-                " 'jarn' (mg).\n"
+                " 'energi', 'protein', 'kolhydrater', 'socker', 'fett',"
+                " 'mattat_fett', 'fiber', 'salt', 'c_vitamin', 'd_vitamin',"
+                " 'jarn'.\n"
                 "Svara ENDAST med giltig JSON utan markdown-kodblock."
             )
 
@@ -320,10 +315,7 @@ else:
             st.success("Receptet har analyserats!")
 
           except Exception as e:
-            st.error(
-                f"Ett fel uppstod vid anropet till Gemini (modell:"
-                f" {GEMINI_MODEL}): {e}"
-            )
+            st.error(f"Ett fel uppstod vid anropet till Gemini: {e}")
 
       if "analyserat_recept" in st.session_state:
         rec = st.session_state["analyserat_recept"]
@@ -339,9 +331,7 @@ else:
           )
 
         ingredients_input = st.text_area(
-            "Ingredienser (en på varje rad)",
-            value=rec.get("ingredients", ""),
-            height=150,
+            "Ingredienser", value=rec.get("ingredients", ""), height=150
         )
         instructions_input = st.text_area(
             "Tillagningssteg", value=rec.get("instructions", ""), height=150
@@ -364,7 +354,7 @@ else:
                 "🌾 Fiber",
                 "🧂 Salt",
                 "🍊 C-vitamin",
-                "☀ D-vitamin",
+                "☀️ D-vitamin",
                 "🧲 Järn",
             ],
             "Per 100 g": [
@@ -423,21 +413,15 @@ else:
                 file_name = (
                     f"{st.session_state['user'].id}/{uuid.uuid4()}.{file_ext}"
                 )
-
                 uppuploadad_bild.seek(0)
-
                 supabase.storage.from_("recept-bilder").upload(
                     path=file_name,
                     file=uppuploadad_bild.getvalue(),
                     file_options={"content-type": f"image/{file_ext}"},
                 )
-
-                public_url_res = (
-                    supabase.storage.from_("recept-bilder").get_public_url(
-                        file_name
-                    )
-                )
-                image_url = public_url_res
+                image_url = supabase.storage.from_(
+                    "recept-bilder"
+                ).get_public_url(file_name)
 
               data_att_spara = {
                   "user_id": st.session_state["user"].id,
@@ -456,7 +440,6 @@ else:
 
               del st.session_state["analyserat_recept"]
               st.session_state["uploader_key"] += 1
-
               st.rerun()
             except Exception as e:
               st.error(f"Kunde inte spara till databasen: {e}")
@@ -480,11 +463,8 @@ else:
         for r in recept_lista:
           titel = r.get("title") or r.get("titel") or "Namnlöst recept"
           kategori = r.get("category") or r.get("kategori") or "Övrigt"
-          ingredients = r.get("ingredients") or ""
+          ingredients = r.get("ingredients") or r.get("text") or ""
           instructions = r.get("instructions") or ""
-
-          if not ingredients and not instructions and r.get("text"):
-            ingredients = r.get("text")
 
           image_url = r.get("image_url")
           recept_id = r.get("id")
@@ -608,7 +588,6 @@ else:
 
                 st.divider()
 
-                naring_text_lines = []
                 n_items = [
                     ("Energi", "energi"),
                     ("Protein", "protein"),
@@ -623,6 +602,7 @@ else:
                     ("Järn", "jarn"),
                 ]
 
+                naring_text_lines = []
                 if nutrition_dict and isinstance(nutrition_dict, dict):
                   p_data_c = nutrition_dict.get("per_portion", {})
                   h_data_c = nutrition_dict.get("per_100g", {})
@@ -719,9 +699,7 @@ else:
                                           alert('Tillåt popups i webbläsaren för att skriva ut.');
                                           return;
                                       }}
-                                      
                                       const htmlBody = {safe_print_html};
-                                      
                                       win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} h3 {{ margin-top: 20px; font-size: 16px; color: #222; }} table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }} th, td {{ border-bottom: 1px solid #eee; padding: 6px; text-align: left; }} th {{ background-color: #f9f9f9; }}</style></head><body>');
                                       win.document.write('<h2>{titel}</h2>');
                                       win.document.write('<p><em>Kategori: {kategori}</em></p>');
@@ -730,7 +708,6 @@ else:
                                       win.document.write('</body></html>');
                                       win.document.close();
                                       win.focus();
-                                      
                                       setTimeout(() => {{
                                           win.print();
                                           win.close();
