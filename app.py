@@ -18,11 +18,11 @@ gemini_api_key = st.secrets.get(
 )
 client = genai.Client(api_key=gemini_api_key)
 
-# HÄR STYR DU MODELLEN TILL 3.8-FLASH:
+# Modellnamn enligt felmeddelandet:
 GEMINI_MODEL = "gemini-3.8-flash"
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.36"
+VERSION = "v1.37"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
@@ -236,7 +236,7 @@ with flik1:
                   existing_meta.data[0].get("is_public", False)
               )
 
-            bild_url = None
+            image_url = None
             if uppuploadad_bild is not None:
               file_ext = uppuploadad_bild.name.split(".")[-1]
               file_name = (
@@ -254,7 +254,7 @@ with flik1:
               public_url_res = supabase.storage.from_("recept-bilder").get_public_url(
                   file_name
               )
-              bild_url = public_url_res
+              image_url = public_url_res
 
             data_att_spara = {
                 "user_id": st.session_state["user"].id,
@@ -263,7 +263,7 @@ with flik1:
                 "ingredients": ingredients_input,
                 "instructions": instructions_input,
                 "nutrition_json": naring_data,
-                "bild_url": bild_url,
+                "image_url": image_url,
                 "is_public": current_is_public,
                 "book_name": current_book_name,
             }
@@ -342,7 +342,7 @@ with flik2:
         if not ingredients and not instructions and r.get("text"):
           ingredients = r.get("text")
 
-        bild_url = r.get("bild_url")
+        image_url = r.get("image_url")
         recept_id = r.get("id")
         nutrition_dict = r.get("nutrition_json") or {}
 
@@ -404,8 +404,8 @@ with flik2:
                   st.session_state[edit_key] = False
                   st.rerun()
             else:
-              if bild_url:
-                st.image(bild_url, caption="Skannat recept", width=300)
+              if image_url:
+                st.image(image_url, caption="Skannat recept", width=300)
 
               st.markdown("### 🛒 Ingredienser")
               st.markdown(ingredients)
@@ -598,12 +598,12 @@ with flik3:
           kategori = r.get("category") or r.get("kategori") or "Övrigt"
           ingredients_d = r.get("ingredients") or r.get("text") or ""
           instructions_d = r.get("instructions") or ""
-          bild_url_d = r.get("bild_url")
+          image_url_d = r.get("image_url")
           nutrition_dict_d = r.get("nutrition_json") or {}
 
           with st.expander(f"📌 {titel} ({kategori})"):
-            if bild_url_d:
-              st.image(bild_url_d, caption="Skannat recept", width=300)
+            if image_url_d:
+              st.image(image_url_d, caption="Skannat recept", width=300)
 
             st.markdown("### 🛒 Ingredienser")
             st.markdown(ingredients_d)
@@ -627,7 +627,7 @@ with flik3:
                         "🌾 Fiber",
                         "🧂 Salt",
                         "🍊 C-vitamin",
-                        "☀️️ D-vitamin",
+                        "☀ D-vitamin",
                         "🧲 Järn",
                     ],
                     "Per 100 g": [
