@@ -15,9 +15,6 @@ st.set_page_config(
 )
 
 # Initiera cookie manager för att spara sessionen i webbläsaren
-@st.cache_resource
-def get_cookie_manager():
-    return stx.CookieManager()
 
 cookie_manager = get_cookie_manager()
 
