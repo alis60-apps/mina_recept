@@ -33,7 +33,7 @@ client = genai.Client(api_key=gemini_api_key)
 GEMINI_MODEL = "gemini-3.8-flash"
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.46"
+VERSION = "v1.47"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- INLOGGNINGSHANTERING ---
@@ -83,6 +83,58 @@ if not st.session_state["user"]:
 with st.sidebar:
     st.header("⚙️ Konto & Inställningar")
     st.write(f"Inloggad som:\n**{st.session_state['user'].email}**")
+
+    st.divider()
+
+    # --- KNAPP FÖR ATT HÅLLA SKÄRMEN TÄND (WAKE LOCK) ---
+    st.subheader("📱 Skärminställning")
+    wake_lock_html = """
+    <div style="margin-bottom: 15px;">
+        <button id="wakelock-btn" onclick="toggleWakeLock()" style="
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            font-size: 14px;
+        ">💡 Håll skärmen tänd: AV</button>
+        <p id="wakelock-status" style="font-size: 12px; color: #666; margin-top: 5px; text-align: center;"></p>
+    </div>
+
+    <script>
+    let wakeLock = null;
+
+    async function toggleWakeLock() {
+        const btn = document.getElementById('wakelock-btn');
+        const status = document.getElementById('wakelock-status');
+
+        if ('wakeLock' in navigator) {
+            if (wakeLock === null) {
+                try {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    btn.innerText = '💡 Håll skärmen tänd: PÅ';
+                    btn.style.backgroundColor = '#ff9800';
+                    status.innerText = 'Skärmen förblir tänd';
+                } catch (err) {
+                    status.innerText = 'Kunde inte aktivera: ' + err.message;
+                }
+            } else {
+                wakeLock.release();
+                wakeLock = null;
+                btn.innerText = '💡 Håll skärmen tänd: AV';
+                btn.style.backgroundColor = '#4CAF50';
+                status.innerText = 'Normal skärmsläckning';
+            }
+        } else {
+            status.innerText = 'Din webbläsare stöder inte Screen Wake Lock API.';
+        }
+    }
+    </script>
+    """
+    components.html(wake_lock_html, height=80)
 
     st.divider()
 
@@ -593,7 +645,7 @@ else:
                                                 p_data.get("socker", "-"),
                                                 p_data.get("fett", "-"),
                                                 p_data.get("mattat_fett", "-"),
-                                                p_data.get("fett", "-"),
+                                                p_data.get("fiber", "-"),
                                                 p_data.get("salt", "-"),
                                                 p_data.get("c_vitamin", "-"),
                                                 p_data.get("d_vitamin", "-"),
