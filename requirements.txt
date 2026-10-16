@@ -1,5 +1,5 @@
 streamlit
+extra-streamlit-components
 google-genai
-pillow
-pandas
 supabase
+pillow
