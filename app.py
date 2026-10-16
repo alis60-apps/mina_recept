@@ -16,7 +16,7 @@ st.set_page_config(
 
 # Initiera cookie manager för att spara sessionen i webbläsaren
 
-cookie_manager = get_cookie_manager()
+cookie_manager = stx.CookieManager()
 
 # -----------------------------------------------------------------------------
 # 2. CLIENT INITIALIZATION (Supabase & Gemini)
