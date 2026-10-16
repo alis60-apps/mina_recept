@@ -1,12 +1,16 @@
 import json
 import os
 import uuid
+import extra_streamlit_components as stx
 import pandas as pd
 from PIL import Image
 import streamlit as st
 import streamlit.components.v1 as components
 from google import genai
 from supabase import Client, create_client
+
+# --- COOKIE MANAGER (Rätt initiering utan cache/funktion) ---
+cookie_manager = stx.CookieManager()
 
 # --- SUPABASE & GEMINI CONFIG ---
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL"))
@@ -24,9 +28,23 @@ GEMINI_MODEL = "gemini-3.8-flash"
 VERSION = "v1.42"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
-# --- INLOGGNINGSHANTERING ---
+# --- INLOGGNINGSHANTERING & COOKIES ---
+# 1. Hämta sparad cookie från webbläsaren om den finns
+saved_user_email = cookie_manager.get(cookie="receptbok_user_email")
+
 if "user" not in st.session_state:
   st.session_state["user"] = None
+
+# 2. Om session State saknar användare men cookie finns -> Återställ sessionen
+if not st.session_state["user"] and saved_user_email:
+  # Skapa ett enkelt dummy-användarobjekt med sparad e-post så att appen känner igen inloggningen
+  class SavedUser:
+
+    def __init__(self, email):
+      self.email = email
+      self.id = email  # Använder e-post som ID vid cookie-återställning
+
+  st.session_state["user"] = SavedUser(saved_user_email)
 
 if not st.session_state["user"]:
   st.subheader("🔑 Logga in")
@@ -53,6 +71,12 @@ if not st.session_state["user"]:
             "password": password,
         })
         st.session_state["user"] = auth_res.user
+        # Spara cookien i webbläsaren vid lyckad inloggning
+        cookie_manager.set(
+            cookie="receptbok_user_email",
+            val=auth_res.user.email,
+            key="set_user_cookie",
+        )
         st.success("Inloggad!")
         st.rerun()
       except Exception as e:
@@ -158,7 +182,13 @@ with st.sidebar:
   st.divider()
 
   if st.button("Logga ut", type="secondary"):
-    supabase.auth.sign_out()
+    try:
+      supabase.auth.sign_out()
+    except Exception:
+      pass
+    cookie_manager.delete(
+        cookie="receptbok_user_email", key="delete_user_cookie"
+    )
     st.session_state["user"] = None
     st.rerun()
 
