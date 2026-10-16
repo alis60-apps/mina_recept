@@ -1,219 +1,754 @@
+import json
 import os
-import streamlit as st
-import extra_streamlit_components as stx
-from supabase import create_client, Client
-from google import genai
+import uuid
+import pandas as pd
 from PIL import Image
+import streamlit as st
+import streamlit.components.v1 as components
+from google import genai
+from supabase import Client, create_client
 
-# -----------------------------------------------------------------------------
-# 1. PAGE CONFIG & COOKIE MANAGER
-# -----------------------------------------------------------------------------
-st.set_page_config(
-    page_title="Receptboken",
-    page_icon="🍳",
-    layout="wide"
+# --- SUPABASE & GEMINI CONFIG ---
+SUPABASE_URL = st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL"))
+SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", os.environ.get("SUPABASE_KEY"))
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+gemini_api_key = st.secrets.get(
+    "GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY")
 )
+client = genai.Client(api_key=gemini_api_key)
 
-# Initiera cookie manager för att spara sessionen i webbläsaren
+GEMINI_MODEL = "gemini-3.8-flash"
 
-cookie_manager = stx.CookieManager()
+# --- VERSIONSHANTERING ---
+VERSION = "v1.42"
+st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
-# -----------------------------------------------------------------------------
-# 2. CLIENT INITIALIZATION (Supabase & Gemini)
-# -----------------------------------------------------------------------------
-@st.cache_resource
-def init_supabase() -> Client:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
-
-supabase = init_supabase()
-
-@st.cache_resource
-def init_gemini():
-    api_key = st.secrets["GEMINI_API_KEY"]
-    return genai.Client(api_key=api_key)
-
-gemini_client = init_gemini()
-
-# -----------------------------------------------------------------------------
-# 3. SESSION & COOKIE STATE MANAGEMENT
-# -----------------------------------------------------------------------------
-# Hämta sparad cookie från webbläsaren om session_state är tom
-saved_user = cookie_manager.get(cookie="receptbok_user")
-
+# --- INLOGGNINGSHANTERING ---
 if "user" not in st.session_state:
-    if saved_user:
-        st.session_state["user"] = saved_user
-    else:
-        st.session_state["user"] = None
+  st.session_state["user"] = None
 
-def login(username: str):
-    st.session_state["user"] = username
-    # Spara cookien i webbläsaren (gäller i 30 dagar)
-    cookie_manager.set(
-        cookie="receptbok_user",
-        val=username,
-        key="set_user_cookie"
+if not st.session_state["user"]:
+  st.subheader("🔑 Logga in")
+
+  with st.form("login_form"):
+    email = st.text_input("E-post", key="login_email", autocomplete="username")
+    password = st.text_input(
+        "Lösenord",
+        type="password",
+        key="login_password",
+        autocomplete="current-password",
     )
 
-def logout():
-    st.session_state["user"] = None
-    cookie_manager.delete(cookie="receptbok_user", key="delete_user_cookie")
+    col1, col2 = st.columns(2)
+    with col1:
+      submit_login = st.form_submit_button("Logga in")
+    with col2:
+      submit_signup = st.form_submit_button("Skapa konto")
 
-# -----------------------------------------------------------------------------
-# 4. MAIN APPLICATION
-# -----------------------------------------------------------------------------
-def main():
-    # Om användaren inte är inloggad -> Visa inloggningsvy
-    if not st.session_state.get("user"):
-        st.title("🍳 Välkommen till Receptboken")
-        st.subheader("Logga in för att komma åt dina recept")
-        
-        with st.form("login_form"):
-            username_input = st.text_input("Användarnamn / E-post")
-            submit = st.form_submit_button("Logga in")
-            
-            if submit:
-                if username_input.strip():
-                    login(username_input.strip())
-                    st.success("Inloggad! Laddar om...")
-                    st.rerun()
-                else:
-                    st.error("Vänligen ange ett giltigt användarnamn.")
-        return
-
-    # --- INLOGGAD VY ---
-    user = st.session_state["user"]
-    
-    # Sidomeny (Sidebar)
-    st.sidebar.title(f"👤 {user}")
-    menu_option = st.sidebar.radio(
-        "Navigering",
-        ["📖 Mina Recept", "📸 Skanna nytt recept (Gemini)", "➕ Lägg till manuellt"]
-    )
-    
-    if st.sidebar.button("🚪 Logga ut"):
-        logout()
+    if submit_login:
+      try:
+        auth_res = supabase.auth.sign_in_with_password({
+            "email": email,
+            "password": password,
+        })
+        st.session_state["user"] = auth_res.user
+        st.success("Inloggad!")
         st.rerun()
+      except Exception as e:
+        st.error(f"Fel vid inloggning: {e}")
 
-    # -------------------------------------------------------------------------
-    # FLIK 1: MINA RECEPT (Hämta från Supabase)
-    # -------------------------------------------------------------------------
-    if menu_option == "📖 Mina Recept":
-        st.title("📖 Mina Recept")
-        
-        try:
-            # Hämta alla recept från Supabase för den inloggade användaren
-            response = supabase.table("recept").select("*").order("created_at", desc=True).execute()
-            recept_list = response.data
+    if submit_signup:
+      try:
+        auth_res = supabase.auth.sign_up({"email": email, "password": password})
+        st.info("Konto skapat! Om e-postbekräftelse krävs, kolla din inkorg.")
+      except Exception as e:
+        st.error(f"Kunde inte skapa konto: {e}")
 
-            if not recept_list:
-                st.info("Du har inga sparade recept ännu. Använd menyn till vänster för att lägga till eller skanna ett recept!")
-            else:
-                for recept in recept_list:
-                    with st.expander(f"🍲 {recept.get('titel', 'Namnlöst recept')}"):
-                        col1, col2 = st.columns([2, 1])
-                        with col1:
-                            st.write("**Ingredienser:**")
-                            st.write(recept.get("ingredienser", "Inga ingredienser angivna."))
-                            st.write("**Instruktioner:**")
-                            st.write(recept.get("instruktioner", "Inga instruktioner angivna."))
-                        with col2:
-                            if recept.get("bild_url"):
-                                st.image(recept["bild_url"], use_container_width=True)
-                            st.caption(f"Kategori: {recept.get('kategori', 'Övrigt')}")
+  st.stop()
 
-        except Exception as e:
-            st.error(f"Kunde inte hämta recept från Supabase: {e}")
+# --- SIDOMENY (SIDEBAR) ---
+with st.sidebar:
+  st.header("⚙️ Konto & Inställningar")
+  st.write(f"Inloggad som:\n**{st.session_state['user'].email}**")
 
-    # -------------------------------------------------------------------------
-    # FLIK 2: SKANNA NYTT RECEPT (Gemini API)
-    # -------------------------------------------------------------------------
-    elif menu_option == "📸 Skanna nytt recept (Gemini)":
-        st.title("📸 Skanna receptbild med AI")
-        st.write("Ladda upp en bild på ett recept från en kokbok eller tidning, så strukturerar Gemini det åt dig.")
+  st.divider()
 
-        uploaded_file = st.file_uploader("Välj en receptbild...", type=["jpg", "jpeg", "png", "webp"])
+  st.subheader("Mina delningsinställningar")
+  nuvarande_status = False
+  nuvarande_book_name = "Min Receptbok"
+  try:
+    user_check = (
+        supabase.table("recept")
+        .select("is_public, book_name")
+        .eq("user_id", st.session_state["user"].id)
+        .limit(1)
+        .execute()
+    )
+    if user_check.data and len(user_check.data) > 0:
+      nuvarande_status = bool(user_check.data[0].get("is_public", False))
+      nuvarande_book_name = (
+          user_check.data[0].get("book_name") or "Min Receptbok"
+      )
+  except Exception as e:
+    pass
 
-        if uploaded_file is not None:
-            image = Image.open(uploaded_file)
-            st.image(image, caption="Uppladdad bild", use_container_width=True)
+  input_book_name = st.text_input(
+      "Namn på din receptbok", value=nuvarande_book_name
+  )
+  gör_publik = st.checkbox(
+      "🌍 Gör hela receptboken publik", value=nuvarande_status
+  )
 
-            if st.button("✨ Analysera bild med Gemini"):
-                with st.spinner("Analyserar bilden och skapar receptet..."):
+  if st.button("Spara inställningar"):
+    try:
+      supabase.table("recept").update({
+          "is_public": gör_publik,
+          "book_name": input_book_name,
+      }).eq("user_id", st.session_state["user"].id).execute()
+      st.success("Inställningarna har sparats!")
+      st.rerun()
+    except Exception as e:
+      st.error(f"Kunde inte uppdatera: {e}")
+
+  st.divider()
+
+  st.subheader("👥 Andras Receptböcker")
+  try:
+    publika_res = (
+        supabase.table("recept").select("*").eq("is_public", True).execute()
+    )
+    publika_recept = publika_res.data
+
+    if not publika_recept:
+      st.info("Inga publika receptböcker hittades.")
+      st.session_state["vald_delad_användare"] = None
+    else:
+      användare_dict = {}
+      book_name_dict = {}
+      for rec in publika_recept:
+        uid = rec.get("user_id")
+        b_namn = rec.get("book_name") or f"Receptbok ({uid[:6]}...)"
+        if uid not in användare_dict:
+          användare_dict[uid] = []
+          book_name_dict[uid] = b_namn
+        användare_dict[uid].append(rec)
+
+      options_list = [None] + list(användare_dict.keys())
+
+      def format_func(x):
+        if x is None:
+          return "🏠 Visa Mina Egna Recept"
+        return f"📖 {book_name_dict.get(x, 'Receptbok')}"
+
+      vald_användare = st.selectbox(
+          "Välj bok att läsa:",
+          options=options_list,
+          format_func=format_func,
+          key="select_delad_bok",
+      )
+      st.session_state["vald_delad_användare"] = vald_användare
+      st.session_state["användare_dict"] = användare_dict
+      st.session_state["book_name_dict"] = book_name_dict
+
+  except Exception as e:
+    st.error("Kunde inte hämta delade böcker.")
+    st.session_state["vald_delad_användare"] = None
+
+  st.divider()
+
+  if st.button("Logga ut", type="secondary"):
+    supabase.auth.sign_out()
+    st.session_state["user"] = None
+    st.rerun()
+
+if "uploader_key" not in st.session_state:
+  st.session_state["uploader_key"] = 0
+
+aktiv_delad_användare = st.session_state.get("vald_delad_användare", None)
+
+# --- OM EN DELAD BOK ÄR VALD I SIDOMENYN ---
+if aktiv_delad_användare:
+  b_namn = st.session_state["book_name_dict"].get(
+      aktiv_delad_användare, "Receptbok"
+  )
+  st.info(f"📖 Du läser nu den publika receptboken: **{b_namn}**")
+
+  sokord_delat = st.text_input(
+      "🔍 Sök i denna publika receptbok...", "", key="sok_delat"
+  )
+  delade_recept_lista = st.session_state["användare_dict"].get(
+      aktiv_delad_användare, []
+  )
+
+  for r in delade_recept_lista:
+    titel = r.get("title") or r.get("titel") or "Namnlöst recept"
+    kategori = r.get("category") or r.get("kategori") or "Övrigt"
+    ingredients_d = r.get("ingredients") or r.get("text") or ""
+    instructions_d = r.get("instructions") or ""
+    image_url_d = r.get("image_url")
+    nutrition_dict_d = r.get("nutrition_json") or {}
+
+    if (
+        not sokord_delat
+        or sokord_delat.lower() in str(titel).lower()
+        or sokord_delat.lower() in str(ingredients_d).lower()
+        or sokord_delat.lower() in str(instructions_d).lower()
+    ):
+      with st.expander(f"📌 {titel} ({kategori})"):
+        if image_url_d:
+          st.image(image_url_d, caption="Skannat recept", width=300)
+
+        st.markdown("### 🛒 Ingredienser")
+        st.markdown(ingredients_d)
+
+        st.markdown("### 👨‍🍳 Tillagning")
+        st.markdown(instructions_d)
+
+        if nutrition_dict_d and isinstance(nutrition_dict_d, dict):
+          p_data_d = nutrition_dict_d.get("per_portion", {})
+          h_data_d = nutrition_dict_d.get("per_100g", {})
+          if p_data_d or h_data_d:
+            st.markdown("### 📊 Näringsinnehåll & Vitaminer")
+            df_naring_vis_d = pd.DataFrame({
+                "Näringsämne": [
+                    "⚡ Energi",
+                    "🥩 Protein",
+                    "🍞 Kolhydrater",
+                    "varav sockerarter",
+                    "🥑 Fett",
+                    "varav mättat fett",
+                    "🌾 Fiber",
+                    "🧂 Salt",
+                    "🍊 C-vitamin",
+                    "☀️ D-vitamin",
+                    "🧲 Järn",
+                ],
+                "Per 100 g": [
+                    h_data_d.get("energi", "-"),
+                    h_data_d.get("protein", "-"),
+                    h_data_d.get("kolhydrater", "-"),
+                    h_data_d.get("socker", "-"),
+                    h_data_d.get("fett", "-"),
+                    h_data_d.get("mattat_fett", "-"),
+                    h_data_d.get("fiber", "-"),
+                    h_data_d.get("salt", "-"),
+                    h_data_d.get("c_vitamin", "-"),
+                    h_data_d.get("d_vitamin", "-"),
+                    h_data_d.get("jarn", "-"),
+                ],
+                "Per Portion": [
+                    p_data_d.get("energi", "-"),
+                    p_data_d.get("protein", "-"),
+                    p_data_d.get("kolhydrater", "-"),
+                    p_data_d.get("socker", "-"),
+                    p_data_d.get("fett", "-"),
+                    p_data_d.get("mattat_fett", "-"),
+                    p_data_d.get("fiber", "-"),
+                    p_data_d.get("salt", "-"),
+                    p_data_d.get("c_vitamin", "-"),
+                    p_data_d.get("d_vitamin", "-"),
+                    p_data_d.get("jarn", "-"),
+                ],
+            })
+            st.table(df_naring_vis_d)
+
+else:
+  # --- VANLIGA HUVUDAPPEN (MIN BOK) ---
+  flik1, flik2 = st.tabs(["📷 Skanna Recept", "📚 Mina Recept"])
+
+  with flik1:
+    st.header("Skanna handskrivet recept")
+
+    uppuploadad_bild = st.file_uploader(
+        "Välj bild på recept...",
+        type=["jpg", "jpeg", "png"],
+        key=f"uploader_{st.session_state['uploader_key']}",
+    )
+
+    if uppuploadad_bild:
+      bild = Image.open(uppuploadad_bild)
+      bild.thumbnail((1000, 1000))
+      st.image(bild, caption="Uppladdad bild (optimerad)", width=300)
+
+      if st.button("Analysera recept med AI", key="btn_analysera"):
+        with st.spinner(
+            "Analyserar handstil och beräknar näringsvärden & vitaminer..."
+        ):
+          try:
+            prompt = (
+                "Analysera denna bild av ett recept. "
+                "Returnera svaret strikt som en JSON-struktur med följande"
+                " nycklar:\n"
+                "- 'title': Receptets namn\n"
+                "- 'category': Passande kategori (t.ex. Huvudrätt, Efterrätt,"
+                " Bakverk)\n"
+                "- 'ingredients': Ingredienslistan formaterad som en sträng där"
+                " VARJE ingrediens ligger på en egen ny rad (med bindestreck eller"
+                " punkt i början, t.ex. '- 2 st ägg').\n"
+                "- 'instructions': Endast tillagningsstegen renskrivna (sträng,"
+                " helt fri från näringsrubriker).\n"
+                "- 'nutrition': Ett objekt med uppskattade näringsvärden"
+                " uppdelade i 'per_portion' och 'per_100g'. Inkludera nycklarna:"
+                " 'energi' (kcal/kJ), 'protein' (g), 'kolhydrater' (g), 'socker'"
+                " (g), 'fett' (g), 'mattat_fett' (g), 'fiber' (g), 'salt' (g),"
+                " samt mikronäringsvärden: 'c_vitamin' (mg), 'd_vitamin' (µg),"
+                " 'jarn' (mg).\n"
+                "Svara ENDAST med giltig JSON utan markdown-kodblock."
+            )
+
+            response = client.models.generate_content(
+                model=GEMINI_MODEL, contents=[bild, prompt]
+            )
+
+            raw_text = response.text.strip()
+            if raw_text.startswith("```json"):
+              raw_text = (
+                  raw_text.replace("```json", "").replace("```", "").strip()
+              )
+
+            recept_data = json.loads(raw_text)
+            st.session_state["analyserat_recept"] = recept_data
+            st.success("Receptet har analyserats!")
+
+          except Exception as e:
+            st.error(
+                f"Ett fel uppstod vid anropet till Gemini (modell:"
+                f" {GEMINI_MODEL}): {e}"
+            )
+
+      if "analyserat_recept" in st.session_state:
+        rec = st.session_state["analyserat_recept"]
+
+        st.subheader("Granska & Spara")
+
+        col_titel, col_kat = st.columns([2, 1])
+        with col_titel:
+          titel_input = st.text_input("Titel", value=rec.get("title", ""))
+        with col_kat:
+          kategori_input = st.text_input(
+              "Kategori", value=rec.get("category", "Övrigt")
+          )
+
+        ingredients_input = st.text_area(
+            "Ingredienser (en på varje rad)",
+            value=rec.get("ingredients", ""),
+            height=150,
+        )
+        instructions_input = st.text_area(
+            "Tillagningssteg", value=rec.get("instructions", ""), height=150
+        )
+
+        st.markdown("### 📊 Näringsinnehåll & Vitaminer")
+
+        naring_data = rec.get("nutrition", {})
+        p_data = naring_data.get("per_portion", {})
+        h_data = naring_data.get("per_100g", {})
+
+        df_naring = pd.DataFrame({
+            "Näringsämne": [
+                "⚡ Energi",
+                "🥩 Protein",
+                "🍞 Kolhydrater",
+                "varav sockerarter",
+                "🥑 Fett",
+                "varav mättat fett",
+                "🌾 Fiber",
+                "🧂 Salt",
+                "🍊 C-vitamin",
+                "☀ D-vitamin",
+                "🧲 Järn",
+            ],
+            "Per 100 g": [
+                h_data.get("energi", "-"),
+                h_data.get("protein", "-"),
+                h_data.get("kolhydrater", "-"),
+                h_data.get("socker", "-"),
+                h_data.get("fett", "-"),
+                h_data.get("mattat_fett", "-"),
+                h_data.get("fiber", "-"),
+                h_data.get("salt", "-"),
+                h_data.get("c_vitamin", "-"),
+                h_data.get("d_vitamin", "-"),
+                h_data.get("jarn", "-"),
+            ],
+            "Per Portion": [
+                p_data.get("energi", "-"),
+                p_data.get("protein", "-"),
+                p_data.get("kolhydrater", "-"),
+                p_data.get("socker", "-"),
+                p_data.get("fett", "-"),
+                p_data.get("mattat_fett", "-"),
+                p_data.get("fiber", "-"),
+                p_data.get("salt", "-"),
+                p_data.get("c_vitamin", "-"),
+                p_data.get("d_vitamin", "-"),
+                p_data.get("jarn", "-"),
+            ],
+        })
+
+        st.table(df_naring)
+
+        if st.button("💾 Spara till databasen", key="btn_spara"):
+          with st.spinner("Laddar upp bild och sparar recept..."):
+            try:
+              existing_meta = (
+                  supabase.table("recept")
+                  .select("book_name, is_public")
+                  .eq("user_id", st.session_state["user"].id)
+                  .limit(1)
+                  .execute()
+              )
+              current_book_name = "Anonymkokboken"
+              current_is_public = False
+              if existing_meta.data and len(existing_meta.data) > 0:
+                current_book_name = (
+                    existing_meta.data[0].get("book_name") or "Anonymkokboken"
+                )
+                current_is_public = bool(
+                    existing_meta.data[0].get("is_public", False)
+                )
+
+              image_url = None
+              if uppuploadad_bild is not None:
+                file_ext = uppuploadad_bild.name.split(".")[-1]
+                file_name = (
+                    f"{st.session_state['user'].id}/{uuid.uuid4()}.{file_ext}"
+                )
+
+                uppuploadad_bild.seek(0)
+
+                supabase.storage.from_("recept-bilder").upload(
+                    path=file_name,
+                    file=uppuploadad_bild.getvalue(),
+                    file_options={"content-type": f"image/{file_ext}"},
+                )
+
+                public_url_res = (
+                    supabase.storage.from_("recept-bilder").get_public_url(
+                        file_name
+                    )
+                )
+                image_url = public_url_res
+
+              data_att_spara = {
+                  "user_id": st.session_state["user"].id,
+                  "title": titel_input,
+                  "category": kategori_input,
+                  "ingredients": ingredients_input,
+                  "instructions": instructions_input,
+                  "nutrition_json": naring_data,
+                  "image_url": image_url,
+                  "is_public": current_is_public,
+                  "book_name": current_book_name,
+              }
+
+              supabase.table("recept").insert(data_att_spara).execute()
+              st.success("Recept och bild har sparats!")
+
+              del st.session_state["analyserat_recept"]
+              st.session_state["uploader_key"] += 1
+
+              st.rerun()
+            except Exception as e:
+              st.error(f"Kunde inte spara till databasen: {e}")
+
+  with flik2:
+    st.header("Mina sparade recept")
+    sokord = st.text_input("🔍 Sök i dina recept...", "", key="sok_recept")
+
+    try:
+      res = (
+          supabase.table("recept")
+          .select("*")
+          .eq("user_id", st.session_state["user"].id)
+          .execute()
+      )
+      recept_lista = res.data
+
+      if not recept_lista:
+        st.info("Inga sparade recept hittades.")
+      else:
+        for r in recept_lista:
+          titel = r.get("title") or r.get("titel") or "Namnlöst recept"
+          kategori = r.get("category") or r.get("kategori") or "Övrigt"
+          ingredients = r.get("ingredients") or ""
+          instructions = r.get("instructions") or ""
+
+          if not ingredients and not instructions and r.get("text"):
+            ingredients = r.get("text")
+
+          image_url = r.get("image_url")
+          recept_id = r.get("id")
+          nutrition_dict = r.get("nutrition_json") or {}
+
+          if (
+              not sokord
+              or sokord.lower() in str(titel).lower()
+              or sokord.lower() in str(ingredients).lower()
+              or sokord.lower() in str(instructions).lower()
+          ):
+            with st.expander(f"📌 {titel} ({kategori})"):
+              edit_key = f"edit_mode_{recept_id}"
+              if edit_key not in st.session_state:
+                st.session_state[edit_key] = False
+
+              col_visa1, col_visa2 = st.columns([10, 2])
+              with col_visa2:
+                if st.button(
+                    "✏️ Redigera", key=f"btn_toggle_edit_{recept_id}"
+                ):
+                  st.session_state[edit_key] = not st.session_state[edit_key]
+                  st.rerun()
+
+              if st.session_state[edit_key]:
+                ny_titel = st.text_input(
+                    "Titel", value=titel, key=f"ny_titel_{recept_id}"
+                )
+                ny_kategori = st.text_input(
+                    "Kategori", value=kategori, key=f"ny_kat_{recept_id}"
+                )
+                ny_ingredients = st.text_area(
+                    "Ingredienser",
+                    value=ingredients,
+                    height=150,
+                    key=f"ny_ing_{recept_id}",
+                )
+                ny_instructions = st.text_area(
+                    "Tillagningssteg",
+                    value=instructions,
+                    height=150,
+                    key=f"ny_inst_{recept_id}",
+                )
+
+                col_spara, col_avbryt = st.columns(2)
+                with col_spara:
+                  if st.button("💾 Spara ändringar", key=f"save_{recept_id}"):
                     try:
-                        prompt = (
-                            "Analysera denna receptbild. Extrahera följande information på svenska "
-                            "i strukturerad form:\n"
-                            "1. Titel på receptet\n"
-                            "2. Ingredienser (som en punktlista)\n"
-                            "3. Instruktioner / Gör så här (steg för steg)\n"
-                            "4. Kategori (t.ex. Middag, Efterrätt, Bakning)"
-                        )
-
-                        # Anropa Gemini API
-                        response = gemini_client.models.generate_content(
-                            model="gemini-2.5-flash",
-                            contents=[image, prompt]
-                        )
-                        
-                        st.subheader("Resultat från Gemini:")
-                        st.markdown(response.text)
-
-                        # Spara i session state för att kunna skicka till Supabase
-                        st.session_state["extracted_text"] = response.text
-
+                      supabase.table("recept").update({
+                          "title": ny_titel,
+                          "category": ny_kategori,
+                          "ingredients": ny_ingredients,
+                          "instructions": ny_instructions,
+                      }).eq("id", recept_id).execute()
+                      st.success("Ändringarna har sparats!")
+                      st.session_state[edit_key] = False
+                      st.rerun()
                     except Exception as e:
-                        st.error(f"Ett fel uppstod vid analysen: {e}")
+                      st.error(f"Kunde inte uppdatera: {e}")
+                with col_avbryt:
+                  if st.button("Avbryt", key=f"cancel_{recept_id}"):
+                    st.session_state[edit_key] = False
+                    st.rerun()
+              else:
+                if image_url:
+                  st.image(image_url, caption="Skannat recept", width=300)
 
-        # Spara-knapp om text har extraherats
-        if "extracted_text" in st.session_state:
-            st.divider()
-            if st.button("💾 Spara analyserat recept till Supabase"):
-                try:
-                    data = {
-                        "titel": "Skannat recept",
-                        "instruktioner": st.session_state["extracted_text"],
-                        "kategori": "Skannat",
-                        "anvandare": user
-                    }
-                    supabase.table("recept").insert(data).execute()
-                    st.success("Receptet har sparats i databasen!")
-                    del st.session_state["extracted_text"]
-                except Exception as e:
-                    st.error(f"Kunde inte spara till Supabase: {e}")
+                st.markdown("### 🛒 Ingredienser")
+                st.markdown(ingredients)
 
-    # -------------------------------------------------------------------------
-    # FLIK 3: LÄGG TILL MANUELLT
-    # -------------------------------------------------------------------------
-    elif menu_option == "➕ Lägg till manuellt":
-        st.title("➕ Lägg till nytt recept manuellt")
+                st.markdown("### 👨‍🍳 Tillagning")
+                st.markdown(instructions)
 
-        with st.form("manual_recipe_form"):
-            titel = st.text_input("Titel")
-            kategori = st.selectbox("Kategori", ["Middag", "Lunch", "Frukost", "Efterrätt", "Bakning", "Övrigt"])
-            ingredienser = st.text_area("Ingredienser")
-            instruktioner = st.text_area("Instruktioner / Gör så här")
-            
-            submit_recipe = st.form_submit_button("Spara recept")
+                if nutrition_dict and isinstance(nutrition_dict, dict):
+                  p_data = nutrition_dict.get("per_portion", {})
+                  h_data = nutrition_dict.get("per_100g", {})
+                  if p_data or h_data:
+                    st.markdown("### 📊 Näringsinnehåll & Vitaminer")
+                    df_naring_vis = pd.DataFrame({
+                        "Näringsämne": [
+                            "⚡ Energi",
+                            "🥩 Protein",
+                            "🍞 Kolhydrater",
+                            "varav sockerarter",
+                            "🥑 Fett",
+                            "varav mättat fett",
+                            "🌾 Fiber",
+                            "🧂 Salt",
+                            "🍊 C-vitamin",
+                            "☀️ D-vitamin",
+                            "🧲 Järn",
+                        ],
+                        "Per 100 g": [
+                            h_data.get("energi", "-"),
+                            h_data.get("protein", "-"),
+                            h_data.get("kolhydrater", "-"),
+                            h_data.get("socker", "-"),
+                            h_data.get("fett", "-"),
+                            h_data.get("mattat_fett", "-"),
+                            h_data.get("fiber", "-"),
+                            h_data.get("salt", "-"),
+                            h_data.get("c_vitamin", "-"),
+                            h_data.get("d_vitamin", "-"),
+                            h_data.get("jarn", "-"),
+                        ],
+                        "Per Portion": [
+                            p_data.get("energi", "-"),
+                            p_data.get("protein", "-"),
+                            p_data.get("kolhydrater", "-"),
+                            p_data.get("socker", "-"),
+                            p_data.get("fett", "-"),
+                            p_data.get("mattat_fett", "-"),
+                            p_data.get("fiber", "-"),
+                            p_data.get("salt", "-"),
+                            p_data.get("c_vitamin", "-"),
+                            p_data.get("d_vitamin", "-"),
+                            p_data.get("jarn", "-"),
+                        ],
+                    })
+                    st.table(df_naring_vis)
 
-            if submit_recipe:
-                if titel and ingredienser:
-                    try:
-                        data = {
-                            "titel": titel,
-                            "kategori": kategori,
-                            "ingredienser": ingredienser,
-                            "instruktioner": instruktioner,
-                            "anvandare": user
-                        }
-                        supabase.table("recept").insert(data).execute()
-                        st.success(f"Receptet '{titel}' har sparats!")
-                    except Exception as e:
-                        st.error(f"Kunde inte spara i databasen: {e}")
-                else:
-                    st.warning("Ange minst titel och ingredienser.")
+                st.divider()
 
-if __name__ == "__main__":
-    main()
+                naring_text_lines = []
+                n_items = [
+                    ("Energi", "energi"),
+                    ("Protein", "protein"),
+                    ("Kolhydrater", "kolhydrater"),
+                    ("varav sockerarter", "socker"),
+                    ("Fett", "fett"),
+                    ("varav mättat fett", "mattat_fett"),
+                    ("Fiber", "fiber"),
+                    ("Salt", "salt"),
+                    ("C-vitamin", "c_vitamin"),
+                    ("D-vitamin", "d_vitamin"),
+                    ("Järn", "jarn"),
+                ]
+
+                if nutrition_dict and isinstance(nutrition_dict, dict):
+                  p_data_c = nutrition_dict.get("per_portion", {})
+                  h_data_c = nutrition_dict.get("per_100g", {})
+                  for lbl, ky in n_items:
+                    hv = h_data_c.get(ky, "-")
+                    pv = p_data_c.get(ky, "-")
+                    if hv != "-" or pv != "-":
+                      naring_text_lines.append(
+                          f" - {lbl}: {hv} per 100g, {pv} per portion"
+                      )
+
+                naring_copy_block = (
+                    "\n\nNäringsinnehåll & Vitaminer:\n"
+                    + "\n".join(naring_text_lines)
+                    if naring_text_lines
+                    else ""
+                )
+                recept_innehall = (
+                    f"Recept: {titel}\nKategori:"
+                    f" {kategori}\n\nIngredienser:\n{ingredients}\n\nTillagning:\n{instructions}{naring_copy_block}"
+                )
+                safe_text = json.dumps(recept_innehall)
+
+                print_naring_html = ""
+                if nutrition_dict and isinstance(nutrition_dict, dict):
+                  p_data_p = nutrition_dict.get("per_portion", {})
+                  h_data_p = nutrition_dict.get("per_100g", {})
+                  if p_data_p or h_data_p:
+                    print_naring_html = """
+                                      <h3 style="margin-top: 25px; font-size: 16px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">📊 Näringsinnehåll & Vitaminer</h3>
+                                      <table>
+                                          <thead>
+                                              <tr style="background-color: #f2f2f2; border-bottom: 1px solid #ddd;">
+                                                  <th style="text-align: left; padding: 6px;">Näringsämne</th>
+                                                  <th style="text-align: left; padding: 6px;">Per 100 g</th>
+                                                  <th style="text-align: left; padding: 6px;">Per Portion</th>
+                                              </tr>
+                                          </thead>
+                                          <tbody>
+                                      """
+                    for lbl, ky in n_items:
+                      hv = h_data_p.get(ky, "-")
+                      pv = p_data_p.get(ky, "-")
+                      print_naring_html += f"""
+                                          <tr style="border-bottom: 1px solid #eee;">
+                                              <td style="padding: 5px;">{lbl}</td>
+                                              <td style="padding: 5px;">{hv}</td>
+                                              <td style="padding: 5px;">{pv}</td>
+                                          </tr>
+                                          """
+                    print_naring_html += "</tbody></table>"
+
+                print_html_content = (
+                    f"<h3>🛒 Ingredienser</h3><p>{ingredients.replace(chr(10), '<br>')}</p>"
+                    f"<h3>👨‍🍳 Tillagning</h3><p>{instructions.replace(chr(10), '<br>')}</p>"
+                    f"{print_naring_html}"
+                )
+                safe_print_html = json.dumps(print_html_content)
+
+                print_html = f"""
+                              <!DOCTYPE html>
+                              <html>
+                              <head>
+                              <meta charset="utf-8">
+                              <style>
+                                body {{ margin: 0; font-family: sans-serif; background-color: transparent; }}
+                                .btn-container {{ display: flex; gap: 8px; flex-wrap: wrap; }}
+                                button {{
+                                    background-color: #ff4b4b;
+                                    color: white;
+                                    border: none;
+                                    padding: 8px 14px;
+                                    border-radius: 6px;
+                                    font-weight: 600;
+                                    cursor: pointer;
+                                    font-size: 13px;
+                                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                                }}
+                                button:hover {{ background-color: #ff2b2b; }}
+                                #status {{ font-size: 13px; color: #666; align-self: center; }}
+                              </style>
+                              </head>
+                              <body>
+                                  <div class="btn-container">
+                                      <button onclick="printRecipe()">🖨 Skriv ut recept</button>
+                                      <button onclick="copyRecipe()">📋 Kopiera text</button>
+                                      <span id="status"></span>
+                                  </div>
+
+                                  <script>
+                                  function printRecipe() {{
+                                      const win = window.open('', '_blank');
+                                      if (!win) {{
+                                          alert('Tillåt popups i webbläsaren för att skriva ut.');
+                                          return;
+                                      }}
+                                      
+                                      const htmlBody = {safe_print_html};
+                                      
+                                      win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} h3 {{ margin-top: 20px; font-size: 16px; color: #222; }} table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }} th, td {{ border-bottom: 1px solid #eee; padding: 6px; text-align: left; }} th {{ background-color: #f9f9f9; }}</style></head><body>');
+                                      win.document.write('<h2>{titel}</h2>');
+                                      win.document.write('<p><em>Kategori: {kategori}</em></p>');
+                                      win.document.write('<hr/>');
+                                      win.document.write('<div>' + htmlBody + '</div>');
+                                      win.document.write('</body></html>');
+                                      win.document.close();
+                                      win.focus();
+                                      
+                                      setTimeout(() => {{
+                                          win.print();
+                                          win.close();
+                                      }}, 500);
+                                  }}
+
+                                  function copyRecipe() {{
+                                      const textToShare = {safe_text};
+                                      const statusEl = document.getElementById('status');
+                                      navigator.clipboard.writeText(textToShare).then(() => {{
+                                          statusEl.innerText = 'Kopierat!';
+                                          setTimeout(() => {{ statusEl.innerText = ''; }}, 2000);
+                                      }});
+                                  }}
+                                  </script>
+                              </body>
+                              </html>
+                              """
+                components.html(print_html, height=45)
+
+                if st.button("🗑️ Radera recept", key=f"del_{recept_id}"):
+                  supabase.table("recept").delete().eq(
+                      "id", recept_id
+                  ).execute()
+                  st.success("Receptet raderades!")
+                  st.rerun()
+
+    except Exception as e:
+      st.error(f"Kunde inte hämta recept från databasen: {e}")
