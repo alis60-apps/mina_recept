@@ -25,7 +25,7 @@ client = genai.Client(api_key=gemini_api_key)
 GEMINI_MODEL = "gemini-3.8-flash"
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.44"
+VERSION = "v1.45"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- ANVÄNDARKLASS FÖR COOKIE-RECOVERY ---
@@ -121,7 +121,7 @@ with st.sidebar:
             nuvarande_book_name = (
                 user_check.data[0].get("book_name") or "Min Receptbok"
             )
-    except Exception as e:
+    except Exception:
         pass
 
     input_book_name = st.text_input(
@@ -182,7 +182,7 @@ with st.sidebar:
             st.session_state["användare_dict"] = användare_dict
             st.session_state["book_name_dict"] = book_name_dict
 
-    except Exception as e:
+    except Exception:
         st.error("Kunde inte hämta delade böcker.")
         st.session_state["vald_delad_användare"] = None
 
@@ -775,5 +775,5 @@ else:
                                     st.success("Receptet raderades!")
                                     st.rerun()
 
-    except Exception as e:
-        st.error(f"Kunde inte hämta recept från databasen: {e}")
+        except Exception as e:
+            st.error(f"Kunde inte hämta recept från databasen: {e}")
