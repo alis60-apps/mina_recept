@@ -1,7 +1,6 @@
 import json
 import os
 import uuid
-import extra_streamlit_components as stx
 import pandas as pd
 from PIL import Image
 import streamlit as st
@@ -9,8 +8,17 @@ import streamlit.components.v1 as components
 from google import genai
 from supabase import Client, create_client
 
-# --- COOKIE MANAGER (Initieras direkt på modulnivå) ---
-cookie_manager = stx.CookieManager()
+# --- KEEP-ALIVE (Förhindrar timeout vid inaktivitet) ---
+components.html(
+    """
+    <script>
+    setInterval(function() {
+        window.dispatchEvent(new Event('resize'));
+    }, 240000); // Pingar servern var 4:e minut
+    </script>
+    """,
+    height=0,
+)
 
 # --- SUPABASE & GEMINI CONFIG ---
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL"))
@@ -25,26 +33,12 @@ client = genai.Client(api_key=gemini_api_key)
 GEMINI_MODEL = "gemini-3.8-flash"
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.45"
+VERSION = "v1.46"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
-# --- ANVÄNDARKLASS FÖR COOKIE-RECOVERY ---
-class SupabaseUserSession:
-    def __init__(self, user_id, email):
-        self.id = user_id
-        self.email = email
-
-# --- INLOGGNINGSHANTERING & COOKIES ---
+# --- INLOGGNINGSHANTERING ---
 if "user" not in st.session_state:
     st.session_state["user"] = None
-
-# Hämta sparade cookie-värden
-saved_user_id = cookie_manager.get(cookie="receptbok_user_id")
-saved_user_email = cookie_manager.get(cookie="receptbok_user_email")
-
-# Återställ session från cookies om session_state är tom
-if not st.session_state["user"] and saved_user_id and saved_user_email:
-    st.session_state["user"] = SupabaseUserSession(saved_user_id, saved_user_email)
 
 if not st.session_state["user"]:
     st.subheader("🔑 Logga in")
@@ -71,19 +65,6 @@ if not st.session_state["user"]:
                     "password": password,
                 })
                 st.session_state["user"] = auth_res.user
-
-                # Spara BÅDE user.id och user.email i separata cookies
-                cookie_manager.set(
-                    cookie="receptbok_user_id",
-                    val=auth_res.user.id,
-                    key="set_cookie_id",
-                )
-                cookie_manager.set(
-                    cookie="receptbok_user_email",
-                    val=auth_res.user.email,
-                    key="set_cookie_email",
-                )
-
                 st.success("Inloggad!")
                 st.rerun()
             except Exception as e:
@@ -193,8 +174,6 @@ with st.sidebar:
             supabase.auth.sign_out()
         except Exception:
             pass
-        cookie_manager.delete(cookie="receptbok_user_id", key="del_cookie_id")
-        cookie_manager.delete(cookie="receptbok_user_email", key="del_cookie_email")
         st.session_state["user"] = None
         st.rerun()
 
@@ -614,7 +593,7 @@ else:
                                                 p_data.get("socker", "-"),
                                                 p_data.get("fett", "-"),
                                                 p_data.get("mattat_fett", "-"),
-                                                p_data.get("fiber", "-"),
+                                                p_data.get("fett", "-"),
                                                 p_data.get("salt", "-"),
                                                 p_data.get("c_vitamin", "-"),
                                                 p_data.get("d_vitamin", "-"),
