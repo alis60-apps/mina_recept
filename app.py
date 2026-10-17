@@ -32,7 +32,7 @@ client = genai.Client(api_key=gemini_api_key)
 GEMINI_MODEL = "gemini-3.8-flash"
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.50"
+VERSION = "v1.51"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- HJÄLPER-FUNKTIONER FÖR FORMATERING & PORTIONSOMRÄKNING ---
@@ -279,6 +279,7 @@ if aktiv_delad_användare:
         image_url_d = r.get("image_url")
         nutrition_dict_d = r.get("nutrition_json") or {}
         orig_portioner_d = r.get("portioner") or r.get("servings") or 4
+        orig_enhet_d = r.get("portioner_enhet") or "portioner"
 
         if not sokord_delat or sokord_delat.lower() in str(titel).lower() or sokord_delat.lower() in str(ingredients_d).lower() or sokord_delat.lower() in str(instructions_d).lower():
             with st.expander(f"📌 {titel} ({kategori})"):
@@ -288,15 +289,15 @@ if aktiv_delad_användare:
                 col_dp1, col_dp2 = st.columns([1, 2])
                 with col_dp1:
                     valda_portioner_d = st.number_input(
-                        "Portioner:",
+                        f"Antal ({orig_enhet_d}):",
                         min_value=1,
-                        max_value=50,
+                        max_value=500,
                         value=int(orig_portioner_d),
                         step=1,
                         key=f"portioner_delat_{r.get('id', uuid.uuid4())}"
                     )
                 if valda_portioner_d != orig_portioner_d:
-                    st.caption(f"ℹ️ Omräknat från {orig_portioner_d} till {valda_portioner_d} portioner.")
+                    st.caption(f"ℹ️ Omräknat från {orig_portioner_d} {orig_enhet_d} till {valda_portioner_d} {orig_enhet_d}.")
 
                 st.markdown("### 🛒 Ingredienser")
                 skalad_ing_d = skala_ingredienser(ingredients_d, orig_portioner_d, valda_portioner_d)
@@ -336,17 +337,20 @@ else:
             st.image(bild, caption="Uppladdad bild (optimerad)", width=300)
 
             if st.button("Analysera recept med AI", key="btn_analysera"):
-                with st.spinner("Analyserar handstil och beräknar näringsvärden & vitaminer..."):
+                with st.spinner("Analyserar handstil, portionsantal och beräknar näringsvärden & vitaminer..."):
                     try:
                         prompt = (
-                            "Analysera denna bild av ett recept. "
+                            "Analysera denna bild av ett recept ytterst noggrant från början till slut. "
+                            "Leta särskilt efter portionsangivelser/antal högst upp, i rubriceringen eller marginalen (t.ex. '12 st', '20 kakor', 'för 4 personer'). "
+                            "Plocka bort portionsangivelsen från själva ingredienslistan så att den inte dubbleras där. "
                             "Returnera svaret strikt som en JSON-struktur med följande nycklar:\n"
                             "- 'title': Receptets namn\n"
-                            "- 'category': Passande kategori (t.ex. Huvudrätt, Efterrätt, Bakverk)\n"
-                            "- 'portioner': Antal portioner receptet är avsett för som heltal (t.ex. 4)\n"
-                            "- 'ingredients': Ingredienslistan formaterad som en sträng där VARJE ingrediens ligger på en egen ny rad med bindestreck i början (t.ex. '- 2 st ägg\\n- 1 dl mjölk').\n"
-                            "- 'instructions': Tillagningsstegen renskrivna som vanliga stycken UTAN NÅGON NUMRERING (inga siffror som 1., 2. eller liknande i början av rader).\n"
-                            "- 'nutrition': Ett objekt med uppskattade näringsvärden uppdelade i 'per_portion' och 'per_100g'. Inkludera nycklarna: 'energi' (kcal/kJ), 'protein' (g), 'kolhydrater' (g), 'socker' (g), 'fett' (g), 'mattat_fett' (g), 'fiber' (g), 'salt' (g), samt mikronäringsvärden: 'c_vitamin' (mg), 'd_vitamin' (µg), 'jarn' (mg).\n"
+                            "- 'category': Passande kategori (t.ex. Förrätt, Huvudrätt, Efterrätt, Bakverk)\n"
+                            "- 'portioner_antal': Antal portioner/stycken som ett heltal (t.ex. 12 för 12 st, 20 för 20 kakor, eller 4 för 4 pers)\n"
+                            "- 'portioner_enhet': Enheten som en kort sträng (t.ex. 'st', 'kakor', 'portioner', 'muffins', 'plåt'). Standard är 'portioner'.\n"
+                            "- 'ingredients': Ingredienslistan formaterad som en sträng där VARJE ingrediens ligger på en egen ny rad med bindestreck i början (t.ex. '- 2 st ägg\\n- 1 dl mjölk'). Inkludera INGA rubriker som '12 st' här.\n"
+                            "- 'instructions': HELA tillagningsstegen renskrivna som vanliga stycken UTAN NÅGON NUMRERING (inga siffror som 1., 2. i början av rader).\n"
+                            "- 'nutrition': Ett objekt med uppskattade näringsvärden uppdelade i 'per_portion' och 'per_100g'. Inkludera nycklarna: 'energi', 'protein', 'kolhydrater', 'socker', 'fett', 'mattat_fett', 'fiber', 'salt', samt 'c_vitamin', 'd_vitamin', 'jarn'.\n"
                             "Svara ENDAST med giltig JSON utan markdown-kodblock."
                         )
 
@@ -371,13 +375,15 @@ else:
 
                 st.subheader("Granska & Spara")
                 
-                col_titel, col_kat, col_port = st.columns([2, 1, 1])
+                col_titel, col_kat, col_port, col_enh = st.columns([2, 1, 1, 1])
                 with col_titel:
                     titel_input = st.text_input("Titel", value=rec.get("title", ""))
                 with col_kat:
                     kategori_input = st.text_input("Kategori", value=rec.get("category", "Övrigt"))
                 with col_port:
-                    portioner_input = st.number_input("Portioner", min_value=1, max_value=50, value=int(rec.get("portioner", 4)))
+                    portioner_input = st.number_input("Antal", min_value=1, max_value=500, value=int(rec.get("portioner_antal", 4)))
+                with col_enh:
+                    enhet_input = st.text_input("Enhet", value=rec.get("portioner_enhet", "portioner"))
 
                 ingredients_input = st.text_area("Ingredienser (en på varje rad)", value=formatera_ingredienser(rec.get("ingredients", "")), height=150)
                 instructions_input = st.text_area("Tillagningssteg (utan numrering)", value=ta_bort_numrering(rec.get("instructions", "")), height=150)
@@ -427,6 +433,7 @@ else:
                                 "title": titel_input,
                                 "category": kategori_input,
                                 "portioner": portioner_input,
+                                "portioner_enhet": enhet_input,
                                 "ingredients": ingredients_input,
                                 "instructions": instructions_input,
                                 "nutrition_json": naring_data,
@@ -462,6 +469,7 @@ else:
                     ingredients = r.get("ingredients") or ""
                     instructions = r.get("instructions") or ""
                     orig_portioner = r.get("portioner") or r.get("servings") or 4
+                    orig_enhet = r.get("portioner_enhet") or "portioner"
 
                     if not ingredients and not instructions and r.get("text"):
                         ingredients = r.get("text")
@@ -485,7 +493,12 @@ else:
                             if st.session_state[edit_key]:
                                 ny_titel = st.text_input("Titel", value=titel, key=f"ny_titel_{recept_id}")
                                 ny_kategori = st.text_input("Kategori", value=kategori, key=f"ny_kat_{recept_id}")
-                                ny_portioner = st.number_input("Portioner (original)", min_value=1, max_value=50, value=int(orig_portioner), key=f"ny_port_{recept_id}")
+                                col_e1, col_e2 = st.columns(2)
+                                with col_e1:
+                                    ny_portioner = st.number_input("Antal (original)", min_value=1, max_value=500, value=int(orig_portioner), key=f"ny_port_{recept_id}")
+                                with col_e2:
+                                    ny_enhet = st.text_input("Enhet", value=orig_enhet, key=f"ny_enh_{recept_id}")
+                                
                                 ny_ingredients = st.text_area("Ingredienser (en på varje rad)", value=formatera_ingredienser(ingredients), height=150, key=f"ny_ing_{recept_id}")
                                 ny_instructions = st.text_area("Tillagningssteg (utan numrering)", value=ta_bort_numrering(instructions), height=150, key=f"ny_inst_{recept_id}")
 
@@ -497,6 +510,7 @@ else:
                                                 "title": ny_titel,
                                                 "category": ny_kategori,
                                                 "portioner": ny_portioner,
+                                                "portioner_enhet": ny_enhet,
                                                 "ingredients": ny_ingredients,
                                                 "instructions": ny_instructions
                                             }).eq("id", recept_id).execute()
@@ -516,15 +530,15 @@ else:
                                 col_p1, col_p2 = st.columns([1, 2])
                                 with col_p1:
                                     valda_portioner = st.number_input(
-                                        "Portioner:",
+                                        f"Antal ({orig_enhet}):",
                                         min_value=1,
-                                        max_value=50,
+                                        max_value=500,
                                         value=int(orig_portioner),
                                         step=1,
                                         key=f"portioner_{recept_id}"
                                     )
                                 if valda_portioner != orig_portioner:
-                                    st.caption(f"ℹ️ Omräknat från {orig_portioner} till {valda_portioner} portioner.")
+                                    st.caption(f"ℹ️ Omräknat från {orig_portioner} {orig_enhet} till {valda_portioner} {orig_enhet}.")
 
                                 st.markdown("### 🛒 Ingredienser")
                                 skalad_ing = skala_ingredienser(ingredients, orig_portioner, valda_portioner)
@@ -566,7 +580,7 @@ else:
 
                                 naring_copy_block = "\n\nNäringsinnehåll & Vitaminer:\n" + "\n".join(naring_text_lines) if naring_text_lines else ""
                                 rensad_instruktion = ta_bort_numrering(instructions)
-                                recept_innehall = f"Recept: {titel}\nKategori: {kategori}\n\nIngredienser ({valda_portioner} portioner):\n{formatera_ingredienser(skalad_ing)}\n\nTillagning:\n{rensad_instruktion}{naring_copy_block}"
+                                recept_innehall = f"Recept: {titel}\nKategori: {kategori}\n\nIngredienser ({valda_portioner} {orig_enhet}):\n{formatera_ingredienser(skalad_ing)}\n\nTillagning:\n{rensad_instruktion}{naring_copy_block}"
                                 safe_text = json.dumps(recept_innehall)
 
                                 print_naring_html = ""
@@ -599,7 +613,7 @@ else:
                                         print_naring_html += "</tbody></table>"
 
                                 print_html_content = (
-                                    f"<h3>🛒 Ingredienser ({valda_portioner} portioner)</h3><p>{formatera_ingredienser(skalad_ing).replace(chr(10), '<br>')}</p>"
+                                    f"<h3>🛒 Ingredienser ({valda_portioner} {orig_enhet})</h3><p>{formatera_ingredienser(skalad_ing).replace(chr(10), '<br>')}</p>"
                                     f"<h3>👨‍🍳 Tillagning</h3><p>{rensad_instruktion.replace(chr(10), '<br>')}</p>"
                                     f"{print_naring_html}"
                                 )
