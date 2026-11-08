@@ -358,19 +358,19 @@ else:
                 with st.spinner("Analyserar handstil, portionsantal och beräknar näringsvärden & vitaminer..."):
                     try:
                         prompt = (
-                            "Analysera denna bild av ett recept ytterst noggrant från början till slut. "
-                            "Leta särskilt efter portionsangivelser/antal högst upp, i rubriceringen eller marginalen (t.ex. '12 st', '20 kakor', 'för 4 personer'). "
-                            "Plocka bort portionsangivelsen från själva ingredienslistan så att den inte dubbleras där. "
-                            "Returnera svaret strikt som en JSON-struktur med följande nycklar:\n"
-                            "- 'title': Receptets namn\n"
-                            "- 'category': Passande kategori (t.ex. Förrätt, Huvudrätt, Efterrätt, Bakverk)\n"
-                            "- 'portioner_antal': Antal portioner/stycken som ett heltal (t.ex. 12 för 12 st, 20 för 20 kakor, eller 4 för 4 pers)\n"
-                            "- 'portioner_enhet': Enheten som en kort sträng (t.ex. 'st', 'kakor', 'portioner', 'muffins', 'plåt'). Standard är 'portioner'.\n"
-                            "- 'ingredients': Ingredienslistan formaterad som en sträng där VARJE ingrediens ligger på en egen ny rad med bindestreck i början (t.ex. '- 2 st ägg\\n- 1 dl mjölk'). Inkludera INGA rubriker som '12 st' här.\n"
-                            "- 'instructions': HELA tillagningsstegen renskrivna som vanliga stycken UTAN NÅGON NUMRERING (inga siffror som 1., 2. i början av rader).\n"
-                            "- 'nutrition': Ett objekt med uppskattade näringsvärden uppdelade i 'per_portion' och 'per_100g'. Inkludera nycklarna: 'energi', 'protein', 'kolhydrater', 'socker', 'fett', 'mattat_fett', 'fiber', 'salt', samt 'c_vitamin', 'd_vitamin', 'jarn'.\n"
-                            "Svara ENDAST med giltig JSON utan markdown-kodblock."
-                        )
+                    f"Generera ÅTTA (8) goda recept som matchar följande ingredienser: {ingrediens_input}. "
+                    f"Undvik dessa redan föreslagna titlar: {', '.join(befintliga_titlar) if befintliga_titlar else 'inga'}. "
+                    "Generera alla åtta, sammanfatta inte och sluta inte i förtid. "
+                    "Returnera ett recept i taget som enskilda JSON-objekt, ETT per rad, utan array-klamrar och utan mellanslag mellan objekten. "
+                    "Varje objekt ska ha nycklarna:\n"
+                    "- 'title': Receptets namn\n"
+                    "- 'category': Kategori (t.ex. Förrätt, Huvudrätt, Efterrätt, Bakverk)\n"
+                    "- 'portioner_antal': Antal portioner som heltal\n"
+                    "- 'portioner_enhet': Enhet (t.ex. portioner)\n"
+                    "- 'ingredients': Ingredienser på egen rad, med bindestreck i början\n"
+                    "- 'instructions': Tillagningssteg utan numrering\n"
+                    "- 'nutrition': Objekt med 'per_portion' och 'per_100g': 'energi', 'protein', 'kolhydrater', 'socker', 'fett', 'mattat_fett', 'fiber', 'salt', 'c_vitamin', 'd_vitamin', 'jarn'"
+                )
 
                         response = client.models.generate_content(
                             model=GEMINI_MODEL,
