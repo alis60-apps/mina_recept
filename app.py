@@ -31,7 +31,7 @@ client = genai.Client(api_key=gemini_api_key)
 GEMINI_MODEL = "gemini-2.5-flash"
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.60"
+VERSION = "v1.61"
 st.title(f"📖 Receptboken ({VERSION})")
 
 # --- HJÄLPER-FUNKTIONER FÖR FORMATERING ---
@@ -272,7 +272,6 @@ with tab3:
                 if matches > 0:
                     matchade_recept.append((r, matches))
             
-            # Sortera efter antal matchningar (flest matchningar först)
             matchade_recept.sort(key=lambda x: x[1], reverse=True)
             
             if matchade_recept:
