@@ -687,6 +687,23 @@ else:
         st.header("🔍 Sök recept")
         st.caption("Sök bland dina sparade recept och få nya AI-förslag baserat på ingredienser.")
 
+        # Tätare radavstånd för AI-korten
+        st.markdown(
+            """
+            <style>
+            div[data-testid="stExpander"] div[data-testid="stMarkdownContainer"] p {
+                margin: 0 0 2px 0 !important;
+                line-height: 1.25 !important;
+            }
+            div[data-testid="stExpander"] div[data-testid="stCaptionContainer"] p {
+                margin: 0 !important;
+            }
+            div[data-testid="stExpander"] h3 { margin: 4px 0 2px 0 !important; }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+
         ingrediens_input = st.text_input(
             "Ingredienser (separera med kommatecken, t.ex. kyckling, ris):",
             key="sok_ingrediens_input"
@@ -724,7 +741,7 @@ else:
                     titel_e = rec_data.get("title") or rec_data.get("titel") or "Namnlöst recept"
                     kategori_e = rec_data.get("category") or rec_data.get("kategori") or "Övrigt"
                     with st.expander(f"⭐ {titel_e} — {kategori_e}", expanded=False):
-                        rendera_receptvisning(rec_data, f"sok_egen_{r_id}")
+                        rendera_receptvisning(rec_data, f"sok_egen_{r_id}", kompakt=True)
 
             st.subheader("AI-förslag")
             ai_plats = st.container()
@@ -774,10 +791,11 @@ else:
                     if st.button("💾 Spara till Mina recept", key=f"spara_ai_{idx}"):
                         spara_ai(norm)
 
-            def stromma_ai():
+            def ett_anrop():
+                """Gör ett anrop, ritar korten direkt och returnerar antal nya objekt."""
                 befintliga_titlar = [f.get("title", "") for f in state["ai_forslag"]]
                 prompt = (
-                    f"Generera 3 till 5 goda recept som matchar följande ingredienser: {ingrediens_input}. "
+                    f"Generera goda recept som matchar följande ingredienser: {ingrediens_input}. "
                     f"Undvik dessa redan föreslagna titlar: {', '.join(befintliga_titlar) if befintliga_titlar else 'inga'}. "
                     "Returnera ett recept i taget som enskilda JSON-objekt, ETT per rad, utan array-klamrar och utan mellanslag mellan objekten. "
                     "Varje objekt ska ha nycklarna:\n"
@@ -800,6 +818,10 @@ else:
                         ny = json.loads(rad)
                     except json.JSONDecodeError:
                         return
+                    # hoppa dubletter på titel
+                    titlar = {f.get("title", "").lower() for f in state["ai_forslag"]}
+                    if str(ny.get("title", "")).lower() in titlar:
+                        return
                     state["ai_forslag"].append(ny)
                     rita_ai_kort(ny, start_idx + len(state["ai_forslag"]) - 1)
 
@@ -812,16 +834,24 @@ else:
                         bearbeta_rad(klar)
                 if buf["rad"].strip():
                     bearbeta_rad(buf["rad"])
+                return len(state["ai_forslag"]) - start_idx
+
+            def fyll_pa(mal):
+                """Loopar anrop tills mal antal finns eller modellen slutar ge nytt (max 6 varv)."""
+                forvarv = 0
+                while len(state["ai_forslag"]) < mal and forvarv < 6:
+                    forvarv += 1
+                    nya = ett_anrop()
+                    if nya == 0:
+                        break
                 state["har_hamtat"] = True
 
             if not state["har_hamtat"]:
-                rita_ai_kort_placeholder = ai_plats.empty()
-                with rita_ai_kort_placeholder:
-                    with st.spinner("Tar fram receptförslag..."):
-                        try:
-                            stromma_ai()
-                        except Exception as e:
-                            st.error(f"Kunde inte hämta AI-förslag: {e}")
+                with st.spinner("Tar fram receptförslag..."):
+                    try:
+                        fyll_pa(8)
+                    except Exception as e:
+                        st.error(f"Kunde inte hämta AI-förslag: {e}")
                 if state["ai_forslag"]:
                     st.rerun()
             else:
@@ -832,7 +862,7 @@ else:
                 if st.button("➕ Visa fler recept"):
                     with st.spinner("Hämtar fler förslag..."):
                         try:
-                            stromma_ai()
+                            fyll_pa(len(state["ai_forslag"]) + 8)
                             st.rerun()
                         except Exception as e:
                             st.error(f"Kunde inte hämta fler förslag: {e}")
