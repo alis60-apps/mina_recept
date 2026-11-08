@@ -9,13 +9,13 @@ import streamlit.components.v1 as components
 from supabase import create_client, Client
 from google import genai
 
-# --- KEEP-ALIVE (Förhindrar timeout vid inaktivitet) ---
+# --- KEEP-ALIVE ---
 components.html(
     """
     <script>
     setInterval(function() {
         window.dispatchEvent(new Event('resize'));
-    }, 240000); // Pingar servern var 4:e minut
+    }, 240000);
     </script>
     """,
     height=0
@@ -31,12 +31,11 @@ client = genai.Client(api_key=gemini_api_key)
 GEMINI_MODEL = "gemini-3.8-flash"
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.61"
+VERSION = "v1.62"
 st.title(f"📖 Receptboken ({VERSION})")
 
-# --- HJÄLPER-FUNKTIONER FÖR FORMATERING ---
+# --- HJÄLPFUNKTIONER ---
 def formatera_ingredienser(text):
-    """Säkerställer att varje ingrediens visas på en ny rad med en punkt framför."""
     if not text:
         return ""
     rader = [r.strip() for r in str(text).split("\n") if r.strip()]
@@ -49,7 +48,6 @@ def formatera_ingredienser(text):
     return "\n".join(formaterade)
 
 def ta_bort_numrering(text):
-    """Tar bort numrering i början av rader (t.ex. '1. ', '2) ') så att tillagningen visas utan nummer."""
     if not text:
         return ""
     rader = str(text).split("\n")
@@ -59,7 +57,7 @@ def ta_bort_numrering(text):
         rensade.append(rensad_rad)
     return "\n".join(rensade)
 
-# --- INLOGGNINGSHANTERING ---
+# --- INLOGGNING ---
 if "user" not in st.session_state:
     st.session_state["user"] = None
 
@@ -86,62 +84,15 @@ if not st.session_state["user"]:
         if submit_signup:
             try:
                 auth_res = supabase.auth.sign_up({"email": email, "password": password})
-                st.info("Konto skapat! Om e-postbekräftelse krävs, kolla din inkorg.")
+                st.info("Konto skapat! Kolla din inkorg om bekräftelse krävs.")
             except Exception as e:
                 st.error(f"Kunde inte skapa konto: {e}")
     st.stop()
 
-# --- SIDOMENY (SIDEBAR) ---
+# --- SIDOMENY ---
 with st.sidebar:
     st.header("⚙️ Konto & Inställningar")
     st.write(f"Inloggad som:\n**{st.session_state['user'].email}**")
-    st.divider()
-
-    st.subheader("📱 Skärminställning")
-    wake_lock_html = """
-    <div style="margin-bottom: 15px;">
-        <button id="wakelock-btn" onclick="toggleWakeLock()" style="
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            padding: 10px 16px;
-            border-radius: 8px;
-            font-weight: bold;
-            cursor: pointer;
-            width: 100%;
-            font-size: 14px;
-        ">💡 Håll skärmen tänd: AV</button>
-        <p id="wakelock-status" style="font-size: 12px; color: #666; margin-top: 5px; text-align: center;"></p>
-    </div>
-    <script>
-    let wakeLock = null;
-    async function toggleWakeLock() {
-        const btn = document.getElementById('wakelock-btn');
-        const status = document.getElementById('wakelock-status');
-        if ('wakeLock' in navigator) {
-            if (wakeLock === null) {
-                try {
-                    wakeLock = await navigator.wakeLock.request('screen');
-                    btn.innerText = '💡 Håll skärmen tänd: PÅ';
-                    btn.style.backgroundColor = '#ff9800';
-                    status.innerText = 'Skärmen förblir tänd';
-                } catch (err) {
-                    status.innerText = 'Kunde inte aktivera: ' + err.message;
-                }
-            } else {
-                wakeLock.release();
-                wakeLock = null;
-                btn.innerText = '💡 Håll skärmen tänd: AV';
-                btn.style.backgroundColor = '#4CAF50';
-                status.innerText = 'Normal skärmsläckning';
-            }
-        } else {
-            status.innerText = 'Din webbläsare stöder inte Screen Wake Lock API.';
-        }
-    }
-    </script>
-    """
-    components.html(wake_lock_html, height=80)
     st.divider()
 
     if st.button("Logga ut"):
@@ -149,41 +100,71 @@ with st.sidebar:
         st.session_state["user"] = None
         st.rerun()
 
-# --- HOVUDMENY / FLIKAR ---
-tab1, tab2, tab3, tab4 = st.tabs(["📚 Mina Recept", "📸 Skanna Recept", "🔍 Sök på Ingredienser", "🤖 Generera med AI"])
+# --- FLIKAR ---
+tab1, tab2, tab3 = st.tabs(["🔍 Sök & Välj Recept", "📸 Skanna Recept", "🤖 Generera med AI"])
 
-# --- FLIK 1: MINA RECEPT ---
+# --- FLIK 1: SÖK & VÄLJ RECEPT ---
 with tab1:
-    st.header("📚 Dina Sparade Recept")
+    st.header("🔍 Sök på ingredienser & Receptbibliotek")
+    st.write("Skriv in ingredienser du vill söka på, eller lämna fältet tomt för att se alla dina sparade recept.")
+    
+    ingrediens_input = st.text_input("Sökord / Ingredienser (t.ex. kyckling, ris, lök):", key="search_ing_input")
+    
     try:
         res = supabase.table("recept").select("*").eq("user_id", st.session_state["user"].id).execute()
-        recept_lista = res.data or []
+        alla_recept = res.data or []
         
-        if not recept_lista:
-            st.info("Du har inga sparade recept ännu. Använd AI-skannern eller AI-kocken för att lägga till nya!")
+        if not alla_recept:
+            st.info("Du har inga sparade recept ännu. Använd skannern eller AI-kocken för att lägga till nya!")
         else:
-            sokord = st.text_input("🔍 Sök i titlar eller ingredienser:", key="recept_sok")
-            if sokord:
-                recept_lista = [r for r in recept_lista if sokord.lower() in r.get("title", "").lower() or sokord.lower() in r.get("ingredients", "").lower()]
+            if ingrediens_input:
+                sokte_ingredienser = [i.strip().lower() for i in ingrediens_input.split(",") if i.strip()]
+                matchade_recept = []
+                for r in alla_recept:
+                    sok_text = (r.get("title", "") + " " + r.get("ingredients", "")).lower()
+                    matches = sum(1 for ing in sokte_ingredienser if ing in sok_text)
+                    if matches > 0:
+                        matchade_recept.append((r, matches))
+                
+                matchade_recept.sort(key=lambda x: x[1], reverse=True)
+                filtrerade_lista = [item[0] for item in matchade_recept]
+            else:
+                filtrerade_lista = alla_recept
+            
+            if filtrerade_lista:
+                st.subheader(f"Hittade {len(filtrerade_lista)} recept:")
+                
+                if "antal_visade" not in st.session_state:
+                    st.session_state["antal_visade"] = 5
+                
+                visade_recept = filtrerade_lista[:st.session_state["antal_visade"]]
+                
+                for r in visade_recept:
+                    with st.expander(f"🍽️ {r.get('title', 'Namnlöst recept')} ({r.get('category', 'Övrigt')})"):
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            st.write(f"**Portioner:** {r.get('portioner', 4)} {r.get('portioner_enhet', 'portioner')}")
+                        with col_b:
+                            st.write(f"**Kategori:** {r.get('category', 'Allmänt')}")
+                        
+                        st.subheader("Ingredienser")
+                        st.text(formatera_ingredienser(r.get("ingredients", "")))
+                        
+                        st.subheader("Instruktioner")
+                        st.text(ta_bort_numrering(r.get("instructions", "")))
+                        
+                        if st.button("🗑️ Ta bort recept", key=f"del_{r.get('id')}"):
+                            supabase.table("recept").delete().eq("id", r.get("id")).execute()
+                            st.success("Receptet borttaget!")
+                            st.rerun()
 
-            for r in recept_lista:
-                with st.expander(f"🍽️ {r.get('title', 'Namnlöst recept')} ({r.get('category', 'Övrigt')})"):
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        st.write(f"**Portioner:** {r.get('portioner', 4)} {r.get('portioner_enhet', 'portioner')}")
-                    with col_b:
-                        st.write(f"**Kategori:** {r.get('category', 'Allmänt')}")
-                    
-                    st.subheader("Ingredienser")
-                    st.text(formatera_ingredienser(r.get("ingredients", "")))
-                    
-                    st.subheader("Instruktioner")
-                    st.text(ta_bort_numrering(r.get("instructions", "")))
-                    
-                    if st.button("🗑️ Ta bort recept", key=f"del_{r.get('id')}"):
-                        supabase.table("recept").delete().eq("id", r.get("id")).execute()
-                        st.success("Receptet borttaget!")
+                if st.session_state["antal_visade"] < len(filtrerade_lista):
+                    if st.button("🔽 Visa fler recept"):
+                        st.session_state["antal_visade"] += 5
                         st.rerun()
+            else:
+                st.info("Inga recept matchade din sökning. Testa att söka på något annat eller skapa ett nytt med AI!")
+                
     except Exception as e:
         st.error(f"Kunde inte hämta recept: {e}")
 
@@ -204,9 +185,9 @@ with tab2:
                     - "title": Receptets titel
                     - "category": Kategori (t.ex. Middag, Efterrätt, Bakning)
                     - "portioner": Antal portioner som ett tal
-                    - "portioner_enhet": Enhet (t.ex. portioner, st, kakor, plåtar)
-                    - "ingredients": En sträng där varje ingrediens är på en ny rad med mängd, enhet och namn.
-                    - "instructions": En ren textsträng med steg-för-steg instruktioner utan numrering.
+                    - "portioner_enhet": Enhet (t.ex. portioner, st)
+                    - "ingredients": En sträng med varje ingrediens på ny rad.
+                    - "instructions": Steg-för-steg instruktioner utan numrering.
                     """
                     response = client.models.generate_content(
                         model=GEMINI_MODEL,
@@ -251,80 +232,39 @@ with tab2:
                 except Exception as e:
                     st.error(f"Kunde inte spara receptet: {e}")
 
-# --- FLIK 3: SÖK PÅ INGREDIENSER ---
+# --- FLIK 3: GENERERA MED AI ---
 with tab3:
-    st.header("🔍 Sök i skafferiet")
-    st.write("Skriv in de ingredienser du har hemma för att hitta matchande recept från din egen receptbok.")
-    
-    ingrediens_input = st.text_input("Ingredienser (separera med kommatecken, t.ex. kyckling, ris, lök):", key="search_ing_input")
-    
-    if ingrediens_input:
-        sokte_ingredienser = [i.strip().lower() for i in ingrediens_input.split(",") if i.strip()]
-        
-        try:
-            res = supabase.table("recept").select("*").eq("user_id", st.session_state["user"].id).execute()
-            alla_recept = res.data or []
-            
-            matchade_recept = []
-            for r in alla_recept:
-                ing_text = r.get("ingredients", "").lower()
-                matches = sum(1 for ing in sokte_ingredienser if ing in ing_text)
-                if matches > 0:
-                    matchade_recept.append((r, matches))
-            
-            matchade_recept.sort(key=lambda x: x[1], reverse=True)
-            
-            if matchade_recept:
-                st.subheader(f"Hittade {len(matchade_recept)} recept som matchar dina ingredienser:")
-                for r, score in matchade_recept:
-                    with st.expander(f"✨ {r.get('title')} (Matchar {score} av {len(sokte_ingredienser)} ingredienser)"):
-                        st.write(f"**Kategori:** {r.get('category', 'Allmänt')}")
-                        st.subheader("Ingredienser")
-                        st.text(formatera_ingredienser(r.get("ingredients", "")))
-                        st.subheader("Instruktioner")
-                        st.text(ta_bort_numrering(r.get("instructions", "")))
-            else:
-                st.info("Inga sparade recept matchade alla/någon av dina inmatade ingredienser. Testa fliken '🤖 Generera med AI' för att skapa ett helt nytt recept på nätet!")
-        except Exception as e:
-            st.error(f"Kunde inte söka i recepten: {e}")
-
-# --- FLIK 4: GENERERA MED AI ---
-with tab4:
-    st.header("🤖 Generera nya receptförslag från nätet / AI")
-    st.write("Få inspiration och nya recept skapade utifrån vad du har i kylen eller vad du är sugen på!")
-    
-    ai_ingredienser = st.text_area("Vilka ingredienser har du hemma?", placeholder="T.ex. lax, spenat, citronskal, grädde", height=100)
-    onskemal = st.text_input("Övriga önskemål (t.ex. snabblagat, lågkolhydrat, festligt):", placeholder="Snabblagat under 20 min")
+    st.header("🤖 Generera nya recept med AI")
+    ai_ingredienser = st.text_area("Vilka ingredienser har du hemma?", placeholder="T.ex. lax, spenat, grädde", height=100)
+    onskemal = st.text_input("Övriga önskemål:", placeholder="T.ex. snabblagat under 20 min")
     
     if st.button("✨ Generera nytt receptförslag"):
         if not ai_ingredienser:
             st.warning("Skriv in minst en ingrediens!")
         else:
-            with st.spinner("Gemini söker inspiration på nätet och komponerar receptet..."):
+            with st.spinner("Gemini komponerar ett recept..."):
                 try:
                     prompt = f"""
-                    Du är en professionell kock. Generera ett välsmakande recept baserat på följande ingredienser och önskemål:
-                    Ingredienser tillgängliga: {ai_ingredienser}
+                    Generera ett välsmakande recept baserat på:
+                    Ingredienser: {ai_ingredienser}
                     Önskemål: {onskemal}
 
-                    Returnera svaret i EXAKT JSON-format med följande nycklar:
+                    Returnera i EXAKT JSON-format med nycklarna:
                     - "title": Receptets namn
-                    - "category": Kategori (Middag, Lunch, Frukost, Efterrätt, Bakning eller Övrigt)
-                    - "portioner": Antal portioner som ett numeriskt tal (t.ex. 4)
-                    - "portioner_enhet": Enhet (t.ex. portioner, st)
-                    - "ingredients": En sträng med alla ingredienser och mängder, en ingrediens per rad.
-                    - "instructions": Steg-för-steg instruktioner för tillagning utan numrering.
+                    - "category": Kategori (Middag, Lunch, Frukost, Efterrätt, Bakning, Övrigt)
+                    - "portioner": Antal portioner som ett numeriskt tal
+                    - "portioner_enhet": Enhet (t.ex. portioner)
+                    - "ingredients": Ingredienser på en rad var
+                    - "instructions": Instruktioner utan numrering
                     """
-                    
                     response = client.models.generate_content(
                         model=GEMINI_MODEL,
                         contents=prompt
                     )
-                    
                     clean_json = re.sub(r'```json\s*|\s*```', '', response.text).strip()
                     generated_recipe = json.loads(clean_json)
                     st.session_state["generated_recipe"] = generated_recipe
-                    st.success("Nytt recept genererat!")
+                    st.success("Recept genererat!")
                 except Exception as e:
                     st.error(f"Kunde inte generera recept: {e}")
 
@@ -332,16 +272,9 @@ with tab4:
         gen = st.session_state["generated_recipe"]
         st.divider()
         st.subheader(f"🍽️ Förslag: {gen.get('title')}")
-        
-        col_g1, col_g2 = st.columns(2)
-        with col_g1:
-            st.write(f"**Kategori:** {gen.get('category')}")
-        with col_g2:
-            st.write(f"**Portioner:** {gen.get('portioner')} {gen.get('portioner_enhet')}")
-            
+        st.write(f"**Kategori:** {gen.get('category')} | **Portioner:** {gen.get('portioner')} {gen.get('portioner_enhet')}")
         st.subheader("Ingredienser")
         st.text(formatera_ingredienser(gen.get("ingredients", "")))
-        
         st.subheader("Instruktioner")
         st.text(ta_bort_numrering(gen.get("instructions", "")))
         
@@ -355,9 +288,9 @@ with tab4:
                     "portioner_enhet": gen.get("portioner_enhet"),
                     "ingredients": gen.get("ingredients"),
                     "instructions": gen.get("instructions")
-                }).execute()
-                st.success("Receptet sparades till ditt receptbibliotek i Supabase!")
+        }).execute()
+                st.success("Sparat till ditt bibliotek!")
                 del st.session_state["generated_recipe"]
                 st.rerun()
             except Exception as e:
-                st.error(f"Kunde inte spara receptet: {e}")
+                st.error(f"Kunde inte spara: {e}")
