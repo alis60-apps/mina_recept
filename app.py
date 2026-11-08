@@ -616,4 +616,195 @@ else:
                                       background-color: #ff4b4b;
                                       color: white;
                                       border: none;
-                                      padding:
+                                      padding: 8px 14px;
+                                      border-radius: 6px;
+                                      font-weight: 600;
+                                      cursor: pointer;
+                                      font-size: 13px;
+                                      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                                  }}
+                                  button:hover {{ background-color: #ff2b2b; }}
+                                  #status {{ font-size: 13px; color: #666; align-self: center; }}
+                                </style>
+                                </head>
+                                <body>
+                                    <div class="btn-container">
+                                        <button onclick="printRecipe()">🖨️ Skriv ut recept</button>
+                                        <button onclick="copyRecipe()">📋 Kopiera text</button>
+                                        <span id="status"></span>
+                                    </div>
+
+                                    <script>
+                                    function printRecipe() {{
+                                        const win = window.open('', '_blank');
+                                        if (!win) {{
+                                            alert('Tillåt popups i webbläsaren för att skriva ut.');
+                                            return;
+                                        }}
+
+                                        const htmlBody = {safe_print_html};
+
+                                        win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} h3 {{ margin-top: 20px; font-size: 16px; color: #222; }} table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }} th, td {{ border-bottom: 1px solid #eee; padding: 6px; text-align: left; }} th {{ background-color: #f9f9f9; }}</style></head><body>');
+                                        win.document.write('<h2>{titel}</h2>');
+                                        win.document.write('<p><em>Kategori: {kategori}</em></p>');
+                                        win.document.write('<hr/>');
+                                        win.document.write('<div>' + htmlBody + '</div>');
+                                        win.document.write('</body></html>');
+                                        win.document.close();
+                                        win.focus();
+
+                                        setTimeout(() => {{
+                                            win.print();
+                                            win.close();
+                                        }}, 500);
+                                    }}
+
+                                    function copyRecipe() {{
+                                        const textToShare = {safe_text};
+                                        const statusEl = document.getElementById('status');
+                                        navigator.clipboard.writeText(textToShare).then(() => {{
+                                            statusEl.innerText = 'Kopierat!';
+                                            setTimeout(() => {{ statusEl.innerText = ''; }}, 2000);
+                                        }});
+                                    }}
+                                    </script>
+                                </body>
+                                </html>
+                                """
+                                components.html(print_html, height=45)
+
+                                if st.button("🗑️ Radera recept", key=f"del_{recept_id}"):
+                                    supabase.table("recept").delete().eq("id", recept_id).execute()
+                                    st.success("Receptet har raderats!")
+                                    st.rerun()
+
+        except Exception as e:
+            st.error(f"Ett fel uppstod vid hämtning av dina recept: {e}")
+
+    with flik3:
+        st.header("🔍 Sök recept")
+        st.caption("Sök bland dina sparade recept och få nya AI-förslag baserat på ingredienser.")
+
+        ingrediens_input = st.text_input(
+            "Ingredienser (separera med kommatecken, t.ex. kyckling, ris):",
+            key="sok_ingrediens_input"
+        )
+
+        if "sok_state" not in st.session_state:
+            st.session_state["sok_state"] = None
+
+        if ingrediens_input:
+            if st.session_state["sok_state"] is None or st.session_state["sok_state"].get("input") != ingrediens_input:
+                st.session_state["sok_state"] = {"input": ingrediens_input, "ai_forslag": [], "har_hamtat": False}
+
+        if ingrediens_input and st.session_state["sok_state"] is not None:
+            state = st.session_state["sok_state"]
+            sokte_ingredienser = [i.strip().lower() for i in ingrediens_input.split(",") if i.strip()]
+
+            try:
+                res = supabase.table("recept").select("*").eq("user_id", st.session_state["user"].id).execute()
+                egna_recept = res.data or []
+                egna_traffar = []
+                for r in egna_recept:
+                    sok_text = (str(r.get("title", "") + " " + r.get("ingredients", ""))).lower()
+                    matches = sum(1 for ing in sokte_ingredienser if ing in sok_text)
+                    if matches > 0:
+                        egna_traffar.append((matches, r))
+                egna_traffar.sort(key=lambda x: x[0], reverse=True)
+            except Exception as e:
+                st.error(f"Kunde inte hämta recept: {e}")
+                egna_traffar = []
+
+            def hamta_ai_forslag():
+                befintliga_titlar = [f.get("title", "") for f in state["ai_forslag"]]
+                prompt = (
+                    f"Generera 3 till 5 goda recept som matchar följande ingredienser: {ingrediens_input}. "
+                    f"Undvik dessa redan föreslagna titlar: {', '.join(befintliga_titlar) if befintliga_titlar else 'inga'}. "
+                    "Returnera svaret strikt som en giltig JSON-lista utan markdown-kodblock. "
+                    "Varje objekt ska ha nycklarna:\n"
+                    "- 'title': Receptets namn\n"
+                    "- 'category': Kategori (t.ex. Förrätt, Huvudrätt, Efterrätt, Bakverk)\n"
+                    "- 'portioner_antal': Antal portioner som heltal\n"
+                    "- 'portioner_enhet': Enhet (t.ex. portioner)\n"
+                    "- 'ingredients': Ingredienser på egen rad, med bindestreck i början\n"
+                    "- 'instructions': Tillagningssteg utan numrering\n"
+                    "- 'nutrition': Objekt med 'per_portion' och 'per_100g': 'energi', 'protein', 'kolhydrater', 'socker', 'fett', 'mattat_fett', 'fiber', 'salt', 'c_vitamin', 'd_vitamin', 'jarn'"
+                )
+                response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+                raw_text = response.text.strip()
+                if raw_text.startswith("```json"):
+                    raw_text = raw_text.replace("```json", "").replace("```", "").strip()
+                nya = json.loads(raw_text)
+                state["ai_forslag"].extend(nya)
+                state["har_hamtat"] = True
+
+            if not state["har_hamtat"]:
+                with st.spinner("Söker bland dina recept och tar fram förslag..."):
+                    try:
+                        hamta_ai_forslag()
+                    except Exception as e:
+                        st.error(f"Kunde inte hämta AI-förslag: {e}")
+
+            if egna_traffar:
+                st.subheader("Dina sparade recept")
+                for score, rec_data in egna_traffar:
+                    r_id = rec_data.get("id", uuid.uuid4())
+                    titel_e = rec_data.get("title") or rec_data.get("titel") or "Namnlöst recept"
+                    kategori_e = rec_data.get("category") or rec_data.get("kategori") or "Övrigt"
+                    with st.expander(f"⭐ {titel_e} ({kategori_e})"):
+                        rendera_receptvisning(rec_data, f"sok_egen_{r_id}")
+
+            if state["ai_forslag"]:
+                st.subheader("AI-förslag")
+                for i, rec_data in enumerate(state["ai_forslag"]):
+                    titel_a = rec_data.get("title", "Förslag")
+                    kategori_a = rec_data.get("category", "Middag")
+                    with st.expander(f"🤖 {titel_a} ({kategori_a})"):
+                        # Normalisera nycklar från AI-formatet till visningsfunktionens förväntade
+                        norm = {
+                            "title": rec_data.get("title"),
+                            "category": rec_data.get("category"),
+                            "portioner": rec_data.get("portioner") or rec_data.get("portioner_antal") or 4,
+                            "portioner_enhet": rec_data.get("portioner_enhet") or "portioner",
+                            "ingredients": rec_data.get("ingredients"),
+                            "instructions": rec_data.get("instructions"),
+                            "nutrition_json": rec_data.get("nutrition") or {}
+                        }
+                        rendera_receptvisning(norm, f"sok_ai_{i}")
+
+                        if st.button("💾 Spara till Mina recept", key=f"spara_ai_{i}"):
+                            try:
+                                existing_meta = supabase.table("recept").select("book_name, is_public").eq("user_id", st.session_state["user"].id).limit(1).execute()
+                                current_book_name = "Anonymkokboken"
+                                current_is_public = False
+                                if existing_meta.data and len(existing_meta.data) > 0:
+                                    current_book_name = existing_meta.data[0].get("book_name") or "Anonymkokboken"
+                                    current_is_public = bool(existing_meta.data[0].get("is_public", False))
+
+                                supabase.table("recept").insert({
+                                    "user_id": st.session_state["user"].id,
+                                    "title": norm["title"],
+                                    "category": norm["category"],
+                                    "portioner": int(norm["portioner"]),
+                                    "portioner_enhet": norm["portioner_enhet"],
+                                    "ingredients": norm["ingredients"],
+                                    "instructions": norm["instructions"],
+                                    "nutrition_json": norm["nutrition_json"],
+                                    "image_url": None,
+                                    "is_public": current_is_public,
+                                    "book_name": current_book_name
+                                }).execute()
+                                st.success("Receptet har sparats till dina recept!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Kunde inte spara receptet: {e}")
+            else:
+                st.info("Inga AI-förslag hittades för dessa ingredienser.")
+
+            if st.button("➕ Visa fler recept"):
+                with st.spinner("Hämtar fler förslag..."):
+                    try:
+                        hamta_ai_forslag()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Kunde inte hämta fler förslag: {e}")
