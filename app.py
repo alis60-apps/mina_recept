@@ -691,14 +691,13 @@ else:
         st.markdown(
             """
             <style>
-            div[data-testid="stExpander"] div[data-testid="stMarkdownContainer"] p {
-                margin: 0 0 2px 0 !important;
-                line-height: 1.25 !important;
-            }
-            div[data-testid="stExpander"] div[data-testid="stCaptionContainer"] p {
-                margin: 0 !important;
-            }
-            div[data-testid="stExpander"] h3 { margin: 4px 0 2px 0 !important; }
+            div[data-testid="stExpander"] { margin-bottom: 4px !important; }
+            div[data-testid="stExpander"] summary { padding: 2px 8px !important; }
+            div[data-testid="stExpander"] details { gap: 0 !important; }
+            div[data-testid="stExpander"] ul { margin: 0 !important; padding-left: 18px !important; }
+            div[data-testid="stExpander"] li { margin: 0 !important; line-height: 1.25 !important; }
+            div[data-testid="stExpander"] p { margin: 0 !important; line-height: 1.25 !important; }
+            div[data-testid="stVerticalBlock"] > div:has(div[data-testid="stExpander"]) { gap: 0.35rem !important; }
             </style>
             """,
             unsafe_allow_html=True
