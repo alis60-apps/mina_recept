@@ -32,7 +32,7 @@ client = genai.Client(api_key=gemini_api_key)
 GEMINI_MODEL = "gemini-3.8-flash"
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.51"
+VERSION = "v1.66"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- HJÄLPER-FUNKTIONER FÖR FORMATERING & PORTIONSOMRÄKNING ---
@@ -56,7 +56,7 @@ def ta_bort_numrering(text):
     rader = str(text).split("\n")
     rensade = []
     for r in rader:
-        rensad_rad = re.sub(r'^\s*\d+[\.\)\:]\s*', '', r)
+        rensad_rad = re.sub(r'^\s*\d+[\.$$\:]\s*', '', r)
         rensade.append(rensad_rad)
     return "\n".join(rensade)
 
@@ -93,23 +93,75 @@ def skala_ingredienser(text, original_servings, target_servings):
     skalade_rader = [re.sub(pattern, convert_match, rad) for rad in rader]
     return "\n".join(skalade_rader)
 
+def rendera_receptvisning(rec_data, unik_nyckel, ta_med_naring=True, portions_default=None):
+    """Delad receptvisning: bild, portionsomräkning, ingredienser, tillagning och näring.
+    Används av Mina recept och Sök recept för identisk uppställning."""
+    titel = rec_data.get("title") or rec_data.get("titel") or "Namnlöst recept"
+    kategori = rec_data.get("category") or rec_data.get("kategori") or "Övrigt"
+    ingredients = rec_data.get("ingredients") or ""
+    instructions = rec_data.get("instructions") or ""
+    orig_portioner = rec_data.get("portioner") or rec_data.get("servings") or 4
+    orig_enhet = rec_data.get("portioner_enhet") or "portioner"
+    image_url = rec_data.get("image_url")
+    nutrition_dict = rec_data.get("nutrition_json") or {}
+
+    if not ingredients and not instructions and rec_data.get("text"):
+        ingredients = rec_data.get("text")
+
+    if image_url:
+        st.image(image_url, caption="Skannat recept", width=300)
+
+    col_p1, col_p2 = st.columns([1, 2])
+    with col_p1:
+        valda_portioner = st.number_input(
+            f"Antal ({orig_enhet}):",
+            min_value=1,
+            max_value=500,
+            value=int(orig_portioner),
+            step=1,
+            key=f"portioner_{unik_nyckel}"
+        )
+    if valda_portioner != orig_portioner:
+        st.caption(f"ℹ️ Omräknat från {orig_portioner} {orig_enhet} till {valda_portioner} {orig_enhet}.")
+
+    st.markdown("### 🛒 Ingredienser")
+    skalad_ing = skala_ingredienser(ingredients, orig_portioner, valda_portioner)
+    st.markdown(formatera_ingredienser(skalad_ing))
+
+    st.markdown("### 👨‍🍳 Tillagning")
+    st.markdown(ta_bort_numrering(instructions))
+
+    if ta_med_naring and nutrition_dict and isinstance(nutrition_dict, dict):
+        p_data = nutrition_dict.get("per_portion", {})
+        h_data = nutrition_dict.get("per_100g", {})
+        if p_data or h_data:
+            st.markdown("### 📊 Näringsinnehåll & Vitaminer")
+            df_naring_vis = pd.DataFrame({
+                "Näringsämne": ["⚡ Energi", "🥩 Protein", "🍞 Kolhydrater", "varav sockerarter", "🥑 Fett", "varav mättat fett", "🌾 Fiber", "🧂 Salt", "🍊 C-vitamin", "☀️ D-vitamin", "🧪 Järn"],
+                "Per 100 g": [h_data.get("energi", "-"), h_data.get("protein", "-"), h_data.get("kolhydrater", "-"), h_data.get("socker", "-"), h_data.get("fett", "-"), h_data.get("mattat_fett", "-"), h_data.get("fiber", "-"), h_data.get("salt", "-"), h_data.get("c_vitamin", "-"), h_data.get("d_vitamin", "-"), h_data.get("jarn", "-")],
+                "Per Portion": [p_data.get("energi", "-"), p_data.get("protein", "-"), p_data.get("kolhydrater", "-"), p_data.get("socker", "-"), p_data.get("fett", "-"), p_data.get("mattat_fett", "-"), p_data.get("fiber", "-"), p_data.get("salt", "-"), p_data.get("c_vitamin", "-"), p_data.get("d_vitamin", "-"), p_data.get("jarn", "-")]
+            })
+            st.table(df_naring_vis)
+
+    return titel, kategori
+
 # --- INLOGGNINGSHANTERING ---
 if "user" not in st.session_state:
     st.session_state["user"] = None
 
 if not st.session_state["user"]:
     st.subheader("🔑 Logga in")
-    
+
     with st.form("login_form"):
         email = st.text_input("E-post", key="login_email", autocomplete="username")
         password = st.text_input("Lösenord", type="password", key="login_password", autocomplete="current-password")
-        
+
         col1, col2 = st.columns(2)
         with col1:
             submit_login = st.form_submit_button("Logga in")
         with col2:
             submit_signup = st.form_submit_button("Skapa konto")
-            
+
         if submit_login:
             try:
                 auth_res = supabase.auth.sign_in_with_password({"email": email, "password": password})
@@ -118,7 +170,7 @@ if not st.session_state["user"]:
                 st.rerun()
             except Exception as e:
                 st.error(f"Fel vid inloggning: {e}")
-                
+
         if submit_signup:
             try:
                 auth_res = supabase.auth.sign_up({"email": email, "password": password})
@@ -132,9 +184,9 @@ if not st.session_state["user"]:
 with st.sidebar:
     st.header("⚙️ Konto & Inställningar")
     st.write(f"Inloggad som:\n**{st.session_state['user'].email}**")
-    
+
     st.divider()
-    
+
     # --- KNAPP FÖR ATT HÅLLA SKÄRMEN TÄND (WAKE LOCK) ---
     st.subheader("📱 Skärminställning")
     wake_lock_html = """
@@ -186,7 +238,7 @@ with st.sidebar:
     components.html(wake_lock_html, height=80)
 
     st.divider()
-    
+
     st.subheader("Mina delningsinställningar")
     nuvarande_status = False
     nuvarande_book_name = "Min Receptbok"
@@ -267,7 +319,7 @@ aktiv_delad_användare = st.session_state.get("vald_delad_användare", None)
 if aktiv_delad_användare:
     b_namn = st.session_state["book_name_dict"].get(aktiv_delad_användare, "Receptbok")
     st.info(f"📖 Du läser nu den publika receptboken: **{b_namn}**")
-    
+
     sokord_delat = st.text_input("🔍 Sök i denna publika receptbok...", "", key="sok_delat")
     delade_recept_lista = st.session_state["användare_dict"].get(aktiv_delad_användare, [])
 
@@ -276,57 +328,20 @@ if aktiv_delad_användare:
         kategori = r.get("category") or r.get("kategori") or "Övrigt"
         ingredients_d = r.get("ingredients") or r.get("text") or ""
         instructions_d = r.get("instructions") or ""
-        image_url_d = r.get("image_url")
-        nutrition_dict_d = r.get("nutrition_json") or {}
-        orig_portioner_d = r.get("portioner") or r.get("servings") or 4
-        orig_enhet_d = r.get("portioner_enhet") or "portioner"
 
         if not sokord_delat or sokord_delat.lower() in str(titel).lower() or sokord_delat.lower() in str(ingredients_d).lower() or sokord_delat.lower() in str(instructions_d).lower():
             with st.expander(f"📌 {titel} ({kategori})"):
-                if image_url_d:
-                    st.image(image_url_d, caption="Skannat recept", width=300)
-                
-                col_dp1, col_dp2 = st.columns([1, 2])
-                with col_dp1:
-                    valda_portioner_d = st.number_input(
-                        f"Antal ({orig_enhet_d}):",
-                        min_value=1,
-                        max_value=500,
-                        value=int(orig_portioner_d),
-                        step=1,
-                        key=f"portioner_delat_{r.get('id', uuid.uuid4())}"
-                    )
-                if valda_portioner_d != orig_portioner_d:
-                    st.caption(f"ℹ️ Omräknat från {orig_portioner_d} {orig_enhet_d} till {valda_portioner_d} {orig_enhet_d}.")
-
-                st.markdown("### 🛒 Ingredienser")
-                skalad_ing_d = skala_ingredienser(ingredients_d, orig_portioner_d, valda_portioner_d)
-                st.markdown(formatera_ingredienser(skalad_ing_d))
-                
-                st.markdown("### 👨‍🍳 Tillagning")
-                st.markdown(ta_bort_numrering(instructions_d))
-
-                if nutrition_dict_d and isinstance(nutrition_dict_d, dict):
-                    p_data_d = nutrition_dict_d.get("per_portion", {})
-                    h_data_d = nutrition_dict_d.get("per_100g", {})
-                    if p_data_d or h_data_d:
-                        st.markdown("### 📊 Näringsinnehåll & Vitaminer")
-                        df_naring_vis_d = pd.DataFrame({
-                            "Näringsämne": ["⚡ Energi", "🥩 Protein", "🍞 Kolhydrater", "varav sockerarter", "🥑 Fett", "varav mättat fett", "🌾 Fiber", "🧂 Salt", "🍊 C-vitamin", "☀️ D-vitamin", "🧪 Järn"],
-                            "Per 100 g": [h_data_d.get("energi", "-"), h_data_d.get("protein", "-"), h_data_d.get("kolhydrater", "-"), h_data_d.get("socker", "-"), h_data_d.get("fett", "-"), h_data_d.get("mattat_fett", "-"), h_data_d.get("fiber", "-"), h_data_d.get("salt", "-"), h_data_d.get("c_vitamin", "-"), h_data_d.get("d_vitamin", "-"), h_data_d.get("jarn", "-")],
-                            "Per Portion": [p_data_d.get("energi", "-"), p_data_d.get("protein", "-"), p_data_d.get("kolhydrater", "-"), p_data_d.get("socker", "-"), p_data_d.get("fett", "-"), p_data_d.get("mattat_fett", "-"), p_data_d.get("fiber", "-"), p_data_d.get("salt", "-"), p_data_d.get("c_vitamin", "-"), p_data_d.get("d_vitamin", "-"), p_data_d.get("jarn", "-")]
-                        })
-                        st.table(df_naring_vis_d)
+                rendera_receptvisning(r, f"delat_{r.get('id', uuid.uuid4())}")
 
 else:
     # --- VANLIGA HUVUDAPPEN (MIN BOK) ---
-    flik1, flik2 = st.tabs(["📷 Skanna Recept", "📚 Mina Recept"])
+    flik1, flik2, flik3 = st.tabs(["📷 Skanna Recept", "📚 Mina Recept", "🔍 Sök Recept"])
 
     with flik1:
         st.header("Skanna handskrivet recept")
-        
+
         uppuploadad_bild = st.file_uploader(
-            "Välj bild på recept...", 
+            "Välj bild på recept...",
             type=["jpg", "jpeg", "png"],
             key=f"uploader_{st.session_state['uploader_key']}"
         )
@@ -374,7 +389,7 @@ else:
                 rec = st.session_state["analyserat_recept"]
 
                 st.subheader("Granska & Spara")
-                
+
                 col_titel, col_kat, col_port, col_enh = st.columns([2, 1, 1, 1])
                 with col_titel:
                     titel_input = st.text_input("Titel", value=rec.get("title", ""))
@@ -470,13 +485,12 @@ else:
                     instructions = r.get("instructions") or ""
                     orig_portioner = r.get("portioner") or r.get("servings") or 4
                     orig_enhet = r.get("portioner_enhet") or "portioner"
-
-                    if not ingredients and not instructions and r.get("text"):
-                        ingredients = r.get("text")
-
                     image_url = r.get("image_url")
                     recept_id = r.get("id")
                     nutrition_dict = r.get("nutrition_json") or {}
+
+                    if not ingredients and not instructions and r.get("text"):
+                        ingredients = r.get("text")
 
                     if not sokord or sokord.lower() in str(titel).lower() or sokord.lower() in str(ingredients).lower() or sokord.lower() in str(instructions).lower():
                         with st.expander(f"📌 {titel} ({kategori})"):
@@ -498,7 +512,7 @@ else:
                                     ny_portioner = st.number_input("Antal (original)", min_value=1, max_value=500, value=int(orig_portioner), key=f"ny_port_{recept_id}")
                                 with col_e2:
                                     ny_enhet = st.text_input("Enhet", value=orig_enhet, key=f"ny_enh_{recept_id}")
-                                
+
                                 ny_ingredients = st.text_area("Ingredienser (en på varje rad)", value=formatera_ingredienser(ingredients), height=150, key=f"ny_ing_{recept_id}")
                                 ny_instructions = st.text_area("Tillagningssteg (utan numrering)", value=ta_bort_numrering(instructions), height=150, key=f"ny_inst_{recept_id}")
 
@@ -524,40 +538,7 @@ else:
                                         st.session_state[edit_key] = False
                                         st.rerun()
                             else:
-                                if image_url:
-                                    st.image(image_url, caption="Skannat recept", width=300)
-
-                                col_p1, col_p2 = st.columns([1, 2])
-                                with col_p1:
-                                    valda_portioner = st.number_input(
-                                        f"Antal ({orig_enhet}):",
-                                        min_value=1,
-                                        max_value=500,
-                                        value=int(orig_portioner),
-                                        step=1,
-                                        key=f"portioner_{recept_id}"
-                                    )
-                                if valda_portioner != orig_portioner:
-                                    st.caption(f"ℹ️ Omräknat från {orig_portioner} {orig_enhet} till {valda_portioner} {orig_enhet}.")
-
-                                st.markdown("### 🛒 Ingredienser")
-                                skalad_ing = skala_ingredienser(ingredients, orig_portioner, valda_portioner)
-                                st.markdown(formatera_ingredienser(skalad_ing))
-
-                                st.markdown("### 👨‍🍳 Tillagning")
-                                st.markdown(ta_bort_numrering(instructions))
-
-                                if nutrition_dict and isinstance(nutrition_dict, dict):
-                                    p_data = nutrition_dict.get("per_portion", {})
-                                    h_data = nutrition_dict.get("per_100g", {})
-                                    if p_data or h_data:
-                                        st.markdown("### 📊 Näringsinnehåll & Vitaminer")
-                                        df_naring_vis = pd.DataFrame({
-                                            "Näringsämne": ["⚡ Energi", "🥩 Protein", "🍞 Kolhydrater", "varav sockerarter", "🥑 Fett", "varav mättat fett", "🌾 Fiber", "🧂 Salt", "🍊 C-vitamin", "☀️ D-vitamin", "🧪 Järn"],
-                                            "Per 100 g": [h_data.get("energi", "-"), h_data.get("protein", "-"), h_data.get("kolhydrater", "-"), h_data.get("socker", "-"), h_data.get("fett", "-"), h_data.get("mattat_fett", "-"), h_data.get("fiber", "-"), h_data.get("salt", "-"), h_data.get("c_vitamin", "-"), h_data.get("d_vitamin", "-"), h_data.get("jarn", "-")],
-                                            "Per Portion": [p_data.get("energi", "-"), p_data.get("protein", "-"), p_data.get("kolhydrater", "-"), p_data.get("socker", "-"), p_data.get("fett", "-"), p_data.get("mattat_fett", "-"), p_data.get("fiber", "-"), p_data.get("salt", "-"), p_data.get("c_vitamin", "-"), p_data.get("d_vitamin", "-"), p_data.get("jarn", "-")]
-                                        })
-                                        st.table(df_naring_vis)
+                                rendera_receptvisning(r, f"egen_{recept_id}")
 
                                 st.divider()
 
@@ -568,6 +549,10 @@ else:
                                     ("Fiber", "fiber"), ("Salt", "salt"), ("C-vitamin", "c_vitamin"),
                                     ("D-vitamin", "d_vitamin"), ("Järn", "jarn")
                                 ]
+
+                                # valda_portioner behövs för copy/print - hämta default via original (omräkning sker i widget)
+                                valda_portioner = st.session_state.get(f"portioner_egen_{recept_id}", int(orig_portioner))
+                                skalad_ing = skala_ingredienser(ingredients, orig_portioner, valda_portioner)
 
                                 if nutrition_dict and isinstance(nutrition_dict, dict):
                                     p_data_c = nutrition_dict.get("per_portion", {})
@@ -631,67 +616,4 @@ else:
                                       background-color: #ff4b4b;
                                       color: white;
                                       border: none;
-                                      padding: 8px 14px;
-                                      border-radius: 6px;
-                                      font-weight: 600;
-                                      cursor: pointer;
-                                      font-size: 13px;
-                                      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                                  }}
-                                  button:hover {{ background-color: #ff2b2b; }}
-                                  #status {{ font-size: 13px; color: #666; align-self: center; }}
-                                </style>
-                                </head>
-                                <body>
-                                    <div class="btn-container">
-                                        <button onclick="printRecipe()">🖨️ Skriv ut recept</button>
-                                        <button onclick="copyRecipe()">📋 Kopiera text</button>
-                                        <span id="status"></span>
-                                    </div>
-
-                                    <script>
-                                    function printRecipe() {{
-                                        const win = window.open('', '_blank');
-                                        if (!win) {{
-                                            alert('Tillåt popups i webbläsaren för att skriva ut.');
-                                            return;
-                                        }}
-                                        
-                                        const htmlBody = {safe_print_html};
-                                        
-                                        win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>{titel}</title><style>body {{ font-family: sans-serif; padding: 30px; color: #111; line-height: 1.5; }} h2 {{ margin-bottom: 5px; }} p {{ color: #555; }} hr {{ border: 0; border-top: 1px solid #ddd; margin: 20px 0; }} h3 {{ margin-top: 20px; font-size: 16px; color: #222; }} table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }} th, td {{ border-bottom: 1px solid #eee; padding: 6px; text-align: left; }} th {{ background-color: #f9f9f9; }}</style></head><body>');
-                                        win.document.write('<h2>{titel}</h2>');
-                                        win.document.write('<p><em>Kategori: {kategori}</em></p>');
-                                        win.document.write('<hr/>');
-                                        win.document.write('<div>' + htmlBody + '</div>');
-                                        win.document.write('</body></html>');
-                                        win.document.close();
-                                        win.focus();
-                                        
-                                        setTimeout(() => {{
-                                            win.print();
-                                            win.close();
-                                        }}, 500);
-                                    }}
-
-                                    function copyRecipe() {{
-                                        const textToShare = {safe_text};
-                                        const statusEl = document.getElementById('status');
-                                        navigator.clipboard.writeText(textToShare).then(() => {{
-                                            statusEl.innerText = 'Kopierat!';
-                                            setTimeout(() => {{ statusEl.innerText = ''; }}, 2000);
-                                        }});
-                                    }}
-                                    </script>
-                                </body>
-                                </html>
-                                """
-                                components.html(print_html, height=45)
-
-                                if st.button("🗑️ Radera recept", key=f"del_{recept_id}"):
-                                    supabase.table("recept").delete().eq("id", recept_id).execute()
-                                    st.success("Receptet har raderats!")
-                                    st.rerun()
-
-        except Exception as e:
-            st.error(f"Ett fel uppstod vid hämtning av dina recept: {e}")
+                                      padding:
