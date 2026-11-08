@@ -32,7 +32,7 @@ client = genai.Client(api_key=gemini_api_key)
 GEMINI_MODEL = "gemini-3.8-flash"
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.66"
+VERSION = "v1.67"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 # --- HJÄLPER-FUNKTIONER FÖR FORMATERING & PORTIONSOMRÄKNING ---
@@ -93,9 +93,8 @@ def skala_ingredienser(text, original_servings, target_servings):
     skalade_rader = [re.sub(pattern, convert_match, rad) for rad in rader]
     return "\n".join(skalade_rader)
 
-def rendera_receptvisning(rec_data, unik_nyckel, ta_med_naring=True, portions_default=None):
-    """Delad receptvisning: bild, portionsomräkning, ingredienser, tillagning och näring.
-    Används av Mina recept och Sök recept för identisk uppställning."""
+def rendera_receptvisning(rec_data, unik_nyckel, ta_med_naring=True, kompakt=False):
+    """Delad receptvisning. kompakt=True ger mindre rubriker och tajtare layout."""
     titel = rec_data.get("title") or rec_data.get("titel") or "Namnlöst recept"
     kategori = rec_data.get("category") or rec_data.get("kategori") or "Övrigt"
     ingredients = rec_data.get("ingredients") or ""
@@ -109,33 +108,37 @@ def rendera_receptvisning(rec_data, unik_nyckel, ta_med_naring=True, portions_de
         ingredients = rec_data.get("text")
 
     if image_url:
-        st.image(image_url, caption="Skannat recept", width=300)
+        st.image(image_url, caption="Skannat recept", width=200 if kompakt else 300)
 
     col_p1, col_p2 = st.columns([1, 2])
     with col_p1:
         valda_portioner = st.number_input(
             f"Antal ({orig_enhet}):",
-            min_value=1,
-            max_value=500,
-            value=int(orig_portioner),
-            step=1,
+            min_value=1, max_value=500, value=int(orig_portioner), step=1,
             key=f"portioner_{unik_nyckel}"
         )
     if valda_portioner != orig_portioner:
         st.caption(f"ℹ️ Omräknat från {orig_portioner} {orig_enhet} till {valda_portioner} {orig_enhet}.")
 
-    st.markdown("### 🛒 Ingredienser")
-    skalad_ing = skala_ingredienser(ingredients, orig_portioner, valda_portioner)
-    st.markdown(formatera_ingredienser(skalad_ing))
-
-    st.markdown("### 👨‍🍳 Tillagning")
-    st.markdown(ta_bort_numrering(instructions))
+    if kompakt:
+        st.caption("🛒 Ingredienser")
+        st.markdown(formatera_ingredienser(skala_ingredienser(ingredients, orig_portioner, valda_portioner)))
+        st.caption("👨‍🍳 Tillagning")
+        st.markdown(ta_bort_numrering(instructions))
+    else:
+        st.markdown("### 🛒 Ingredienser")
+        st.markdown(formatera_ingredienser(skala_ingredienser(ingredients, orig_portioner, valda_portioner)))
+        st.markdown("### 👨‍🍳 Tillagning")
+        st.markdown(ta_bort_numrering(instructions))
 
     if ta_med_naring and nutrition_dict and isinstance(nutrition_dict, dict):
         p_data = nutrition_dict.get("per_portion", {})
         h_data = nutrition_dict.get("per_100g", {})
         if p_data or h_data:
-            st.markdown("### 📊 Näringsinnehåll & Vitaminer")
+            if kompakt:
+                st.caption("📊 Näringsinnehåll & Vitaminer")
+            else:
+                st.markdown("### 📊 Näringsinnehåll & Vitaminer")
             df_naring_vis = pd.DataFrame({
                 "Näringsämne": ["⚡ Energi", "🥩 Protein", "🍞 Kolhydrater", "varav sockerarter", "🥑 Fett", "varav mättat fett", "🌾 Fiber", "🧂 Salt", "🍊 C-vitamin", "☀️ D-vitamin", "🧪 Järn"],
                 "Per 100 g": [h_data.get("energi", "-"), h_data.get("protein", "-"), h_data.get("kolhydrater", "-"), h_data.get("socker", "-"), h_data.get("fett", "-"), h_data.get("mattat_fett", "-"), h_data.get("fiber", "-"), h_data.get("salt", "-"), h_data.get("c_vitamin", "-"), h_data.get("d_vitamin", "-"), h_data.get("jarn", "-")],
@@ -550,7 +553,6 @@ else:
                                     ("D-vitamin", "d_vitamin"), ("Järn", "jarn")
                                 ]
 
-                                # valda_portioner behövs för copy/print - hämta default via original (omräkning sker i widget)
                                 valda_portioner = st.session_state.get(f"portioner_egen_{recept_id}", int(orig_portioner))
                                 skalad_ing = skala_ingredienser(ingredients, orig_portioner, valda_portioner)
 
@@ -715,12 +717,69 @@ else:
                 st.error(f"Kunde inte hämta recept: {e}")
                 egna_traffar = []
 
-            def hamta_ai_forslag():
+            if egna_traffar:
+                st.subheader("Dina sparade recept")
+                for score, rec_data in egna_traffar:
+                    r_id = rec_data.get("id", uuid.uuid4())
+                    titel_e = rec_data.get("title") or rec_data.get("titel") or "Namnlöst recept"
+                    kategori_e = rec_data.get("category") or rec_data.get("kategori") or "Övrigt"
+                    with st.expander(f"⭐ {titel_e} — {kategori_e}", expanded=False):
+                        rendera_receptvisning(rec_data, f"sok_egen_{r_id}")
+
+            st.subheader("AI-förslag")
+            ai_plats = st.container()
+
+            def normalisera(rd):
+                return {
+                    "title": rd.get("title"),
+                    "category": rd.get("category"),
+                    "portioner": rd.get("portioner") or rd.get("portioner_antal") or 4,
+                    "portioner_enhet": rd.get("portioner_enhet") or "portioner",
+                    "ingredients": rd.get("ingredients"),
+                    "instructions": rd.get("instructions"),
+                    "nutrition_json": rd.get("nutrition") or {}
+                }
+
+            def spara_ai(norm):
+                try:
+                    existing_meta = supabase.table("recept").select("book_name, is_public").eq("user_id", st.session_state["user"].id).limit(1).execute()
+                    current_book_name = "Anonymkokboken"
+                    current_is_public = False
+                    if existing_meta.data and len(existing_meta.data) > 0:
+                        current_book_name = existing_meta.data[0].get("book_name") or "Anonymkokboken"
+                        current_is_public = bool(existing_meta.data[0].get("is_public", False))
+
+                    supabase.table("recept").insert({
+                        "user_id": st.session_state["user"].id,
+                        "title": norm["title"],
+                        "category": norm["category"],
+                        "portioner": int(norm["portioner"]),
+                        "portioner_enhet": norm["portioner_enhet"],
+                        "ingredients": norm["ingredients"],
+                        "instructions": norm["instructions"],
+                        "nutrition_json": norm["nutrition_json"],
+                        "image_url": None,
+                        "is_public": current_is_public,
+                        "book_name": current_book_name
+                    }).execute()
+                    st.toast("Receptet har sparats!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Kunde inte spara receptet: {e}")
+
+            def rita_ai_kort(rd, idx):
+                norm = normalisera(rd)
+                with ai_plats.expander(f"🤖 {norm['title'] or 'Förslag'} — {norm['category'] or 'Middag'}", expanded=False):
+                    rendera_receptvisning(norm, f"sok_ai_{idx}", kompakt=True)
+                    if st.button("💾 Spara till Mina recept", key=f"spara_ai_{idx}"):
+                        spara_ai(norm)
+
+            def stromma_ai():
                 befintliga_titlar = [f.get("title", "") for f in state["ai_forslag"]]
                 prompt = (
                     f"Generera 3 till 5 goda recept som matchar följande ingredienser: {ingrediens_input}. "
                     f"Undvik dessa redan föreslagna titlar: {', '.join(befintliga_titlar) if befintliga_titlar else 'inga'}. "
-                    "Returnera svaret strikt som en giltig JSON-lista utan markdown-kodblock. "
+                    "Returnera ett recept i taget som enskilda JSON-objekt, ETT per rad, utan array-klamrar och utan mellanslag mellan objekten. "
                     "Varje objekt ska ha nycklarna:\n"
                     "- 'title': Receptets namn\n"
                     "- 'category': Kategori (t.ex. Förrätt, Huvudrätt, Efterrätt, Bakverk)\n"
@@ -730,81 +789,52 @@ else:
                     "- 'instructions': Tillagningssteg utan numrering\n"
                     "- 'nutrition': Objekt med 'per_portion' och 'per_100g': 'energi', 'protein', 'kolhydrater', 'socker', 'fett', 'mattat_fett', 'fiber', 'salt', 'c_vitamin', 'd_vitamin', 'jarn'"
                 )
-                response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-                raw_text = response.text.strip()
-                if raw_text.startswith("```json"):
-                    raw_text = raw_text.replace("```json", "").replace("```", "").strip()
-                nya = json.loads(raw_text)
-                state["ai_forslag"].extend(nya)
+                buf = {"rad": ""}
+                start_idx = len(state["ai_forslag"])
+
+                def bearbeta_rad(rad):
+                    rad = rad.strip().rstrip(",")
+                    if not rad.startswith("{") or not rad.endswith("}"):
+                        return
+                    try:
+                        ny = json.loads(rad)
+                    except json.JSONDecodeError:
+                        return
+                    state["ai_forslag"].append(ny)
+                    rita_ai_kort(ny, start_idx + len(state["ai_forslag"]) - 1)
+
+                for chunk in client.models.generate_content_stream(model=GEMINI_MODEL, contents=prompt):
+                    if not chunk.text:
+                        continue
+                    buf["rad"] += chunk.text
+                    while "\n" in buf["rad"]:
+                        klar, buf["rad"] = buf["rad"].split("\n", 1)
+                        bearbeta_rad(klar)
+                if buf["rad"].strip():
+                    bearbeta_rad(buf["rad"])
                 state["har_hamtat"] = True
 
             if not state["har_hamtat"]:
-                with st.spinner("Söker bland dina recept och tar fram förslag..."):
-                    try:
-                        hamta_ai_forslag()
-                    except Exception as e:
-                        st.error(f"Kunde inte hämta AI-förslag: {e}")
-
-            if egna_traffar:
-                st.subheader("Dina sparade recept")
-                for score, rec_data in egna_traffar:
-                    r_id = rec_data.get("id", uuid.uuid4())
-                    titel_e = rec_data.get("title") or rec_data.get("titel") or "Namnlöst recept"
-                    kategori_e = rec_data.get("category") or rec_data.get("kategori") or "Övrigt"
-                    with st.expander(f"⭐ {titel_e} ({kategori_e})"):
-                        rendera_receptvisning(rec_data, f"sok_egen_{r_id}")
+                rita_ai_kort_placeholder = ai_plats.empty()
+                with rita_ai_kort_placeholder:
+                    with st.spinner("Tar fram receptförslag..."):
+                        try:
+                            stromma_ai()
+                        except Exception as e:
+                            st.error(f"Kunde inte hämta AI-förslag: {e}")
+                if state["ai_forslag"]:
+                    st.rerun()
+            else:
+                for i, rd in enumerate(state["ai_forslag"]):
+                    rita_ai_kort(rd, i)
 
             if state["ai_forslag"]:
-                st.subheader("AI-förslag")
-                for i, rec_data in enumerate(state["ai_forslag"]):
-                    titel_a = rec_data.get("title", "Förslag")
-                    kategori_a = rec_data.get("category", "Middag")
-                    with st.expander(f"🤖 {titel_a} ({kategori_a})"):
-                        # Normalisera nycklar från AI-formatet till visningsfunktionens förväntade
-                        norm = {
-                            "title": rec_data.get("title"),
-                            "category": rec_data.get("category"),
-                            "portioner": rec_data.get("portioner") or rec_data.get("portioner_antal") or 4,
-                            "portioner_enhet": rec_data.get("portioner_enhet") or "portioner",
-                            "ingredients": rec_data.get("ingredients"),
-                            "instructions": rec_data.get("instructions"),
-                            "nutrition_json": rec_data.get("nutrition") or {}
-                        }
-                        rendera_receptvisning(norm, f"sok_ai_{i}")
-
-                        if st.button("💾 Spara till Mina recept", key=f"spara_ai_{i}"):
-                            try:
-                                existing_meta = supabase.table("recept").select("book_name, is_public").eq("user_id", st.session_state["user"].id).limit(1).execute()
-                                current_book_name = "Anonymkokboken"
-                                current_is_public = False
-                                if existing_meta.data and len(existing_meta.data) > 0:
-                                    current_book_name = existing_meta.data[0].get("book_name") or "Anonymkokboken"
-                                    current_is_public = bool(existing_meta.data[0].get("is_public", False))
-
-                                supabase.table("recept").insert({
-                                    "user_id": st.session_state["user"].id,
-                                    "title": norm["title"],
-                                    "category": norm["category"],
-                                    "portioner": int(norm["portioner"]),
-                                    "portioner_enhet": norm["portioner_enhet"],
-                                    "ingredients": norm["ingredients"],
-                                    "instructions": norm["instructions"],
-                                    "nutrition_json": norm["nutrition_json"],
-                                    "image_url": None,
-                                    "is_public": current_is_public,
-                                    "book_name": current_book_name
-                                }).execute()
-                                st.success("Receptet har sparats till dina recept!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Kunde inte spara receptet: {e}")
-            else:
+                if st.button("➕ Visa fler recept"):
+                    with st.spinner("Hämtar fler förslag..."):
+                        try:
+                            stromma_ai()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Kunde inte hämta fler förslag: {e}")
+            elif state["har_hamtat"]:
                 st.info("Inga AI-förslag hittades för dessa ingredienser.")
-
-            if st.button("➕ Visa fler recept"):
-                with st.spinner("Hämtar fler förslag..."):
-                    try:
-                        hamta_ai_forslag()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Kunde inte hämta fler förslag: {e}")
