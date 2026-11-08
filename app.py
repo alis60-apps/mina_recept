@@ -687,17 +687,14 @@ else:
         st.header("🔍 Sök recept")
         st.caption("Sök bland dina sparade recept och få nya AI-förslag baserat på ingredienser.")
 
-        # Tätare radavstånd för AI-korten
         st.markdown(
             """
             <style>
-            div[data-testid="stExpander"] { margin-bottom: 4px !important; }
-            div[data-testid="stExpander"] summary { padding: 2px 8px !important; }
-            div[data-testid="stExpander"] details { gap: 0 !important; }
-            div[data-testid="stExpander"] ul { margin: 0 !important; padding-left: 18px !important; }
-            div[data-testid="stExpander"] li { margin: 0 !important; line-height: 1.25 !important; }
-            div[data-testid="stExpander"] p { margin: 0 !important; line-height: 1.25 !important; }
-            div[data-testid="stVerticalBlock"] > div:has(div[data-testid="stExpander"]) { gap: 0.35rem !important; }
+            div[data-testid="stExpander"] { margin: 0 0 2px 0 !important; padding: 0 !important; }
+            div[data-testid="stExpander"] > details { margin: 0 !important; padding: 0 !important; }
+            div[data-testid="stExpander"] > details > summary { padding: 1px 6px !important; min-height: 0 !important; }
+            div[data-testid="stExpander"] > details > summary p { font-size: 0.9rem !important; margin: 0 !important; }
+            div[data-testid="stVerticalBlock"] { gap: 0.25rem !important; }
             </style>
             """,
             unsafe_allow_html=True
@@ -719,19 +716,29 @@ else:
             state = st.session_state["sok_state"]
             sokte_ingredienser = [i.strip().lower() for i in ingrediens_input.split(",") if i.strip()]
 
+            # --- Egna träffar filtreras i databasen (snabbare än att hämta allt) ---
+            egna_traffar = []
+            egoch_filter = "title.ilike.%{}%,ingredients.ilike.%{}%".format(
+                ingrediens_input.replace(",", "%"), ingrediens_input.replace(",", "%")
+            )
             try:
-                res = supabase.table("recept").select("*").eq("user_id", st.session_state["user"].id).execute()
-                egna_recept = res.data or []
-                egna_traffar = []
-                for r in egna_recept:
-                    sok_text = (str(r.get("title", "") + " " + r.get("ingredients", ""))).lower()
+                q = supabase.table("recept").select("*").eq("user_id", st.session_state["user"].id)
+                # bygg OR över alla ingredienser så bara träffar hämtas
+                or_delar = []
+                for ing in sokte_ingredienser:
+                    or_delar.append(f"title.ilike.%{ing}%")
+                    or_delar.append(f"ingredients.ilike.%{ing}%")
+                if or_delar:
+                    q = q.or_(",".join(or_delar))
+                res = q.execute()
+                for r in (res.data or []):
+                    sok_text = (str(r.get("title", "")) + " " + str(r.get("ingredients", ""))).lower()
                     matches = sum(1 for ing in sokte_ingredienser if ing in sok_text)
                     if matches > 0:
                         egna_traffar.append((matches, r))
                 egna_traffar.sort(key=lambda x: x[0], reverse=True)
             except Exception as e:
                 st.error(f"Kunde inte hämta recept: {e}")
-                egna_traffar = []
 
             if egna_traffar:
                 st.subheader("Dina sparade recept")
@@ -791,7 +798,6 @@ else:
                         spara_ai(norm)
 
             def ett_anrop():
-                """Gör ett anrop, ritar korten direkt och returnerar antal nya objekt."""
                 befintliga_titlar = [f.get("title", "") for f in state["ai_forslag"]]
                 prompt = (
                     f"Generera goda recept som matchar följande ingredienser: {ingrediens_input}. "
@@ -817,7 +823,6 @@ else:
                         ny = json.loads(rad)
                     except json.JSONDecodeError:
                         return
-                    # hoppa dubletter på titel
                     titlar = {f.get("title", "").lower() for f in state["ai_forslag"]}
                     if str(ny.get("title", "")).lower() in titlar:
                         return
@@ -835,10 +840,9 @@ else:
                     bearbeta_rad(buf["rad"])
                 return len(state["ai_forslag"]) - start_idx
 
-            def fyll_pa(mal):
-                """Loopar anrop tills mal antal finns eller modellen slutar ge nytt (max 6 varv)."""
+            def fyll_pa(mal, max_varv=2):
                 forvarv = 0
-                while len(state["ai_forslag"]) < mal and forvarv < 6:
+                while len(state["ai_forslag"]) < mal and forvarv < max_varv:
                     forvarv += 1
                     nya = ett_anrop()
                     if nya == 0:
@@ -848,11 +852,9 @@ else:
             if not state["har_hamtat"]:
                 with st.spinner("Tar fram receptförslag..."):
                     try:
-                        fyll_pa(8)
+                        fyll_pa(6)
                     except Exception as e:
                         st.error(f"Kunde inte hämta AI-förslag: {e}")
-                if state["ai_forslag"]:
-                    st.rerun()
             else:
                 for i, rd in enumerate(state["ai_forslag"]):
                     rita_ai_kort(rd, i)
@@ -861,8 +863,7 @@ else:
                 if st.button("➕ Visa fler recept"):
                     with st.spinner("Hämtar fler förslag..."):
                         try:
-                            fyll_pa(len(state["ai_forslag"]) + 8)
-                            st.rerun()
+                            fyll_pa(len(state["ai_forslag"]) + 6)
                         except Exception as e:
                             st.error(f"Kunde inte hämta fler förslag: {e}")
             elif state["har_hamtat"]:
