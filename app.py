@@ -24,25 +24,14 @@ components.html(
 # --- SUPABASE & GEMINI CONFIG ---
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL"))
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", os.environ.get("SUPABASE_KEY"))
-gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY"))
-
-_saknade = []
-if not SUPABASE_URL:
-    _saknade.append("SUPABASE_URL")
-if not SUPABASE_KEY:
-    _saknade.append("SUPABASE_KEY")
-if not gemini_api_key:
-    _saknade.append("GEMINI_API_KEY")
-if _saknade:
-    st.error(f"Saknade konfigurationsvärden: {', '.join(_saknade)}. Lägg till dem i secrets/omgivningsvariabler.")
-    st.stop()
-
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY"))
 client = genai.Client(api_key=gemini_api_key)
 GEMINI_MODEL = "gemini-3.8-flash"
 
 # --- VERSIONSHANTERING ---
-VERSION = "v1.65"
+VERSION = "v1.63"
 st.title(f"📖 Receptboken ({VERSION})")
 
 # --- HJÄLPFUNKTIONER ---
@@ -64,46 +53,9 @@ def ta_bort_numrering(text):
     rader = str(text).split("\n")
     rensade = []
     for r in rader:
-        rensad_rad = re.sub(r'^\s*\d+[\.$$\:]\s*', '', r)
+        rensad_rad = re.sub(r'^\s*\d+[\.\)\:]\s*', '', r)
         rensade.append(rensad_rad)
     return "\n".join(rensade)
-
-def till_int(varde, default=4):
-    try:
-        return int(float(varde))
-    except (TypeError, ValueError):
-        return default
-
-def kategori_index(vald, lista):
-    try:
-        return lista.index(vald)
-    except (ValueError, AttributeError):
-        return 0
-
-def rendera_receptkort(rec_data, nyckel, spar_knapp=False):
-    """Delad uppställning för receptkort i Mina recept och Sök recept."""
-    st.write(f"**Portioner:** {rec_data.get('portioner', 4)} {rec_data.get('portioner_enhet', 'portioner')}")
-    st.write(f"**Kategori:** {rec_data.get('category', 'Allmänt')}")
-    st.subheader("Ingredienser")
-    st.text(formatera_ingredienser(rec_data.get("ingredients", "")))
-    st.subheader("Instruktioner")
-    st.text(ta_bort_numrering(rec_data.get("instructions", "")))
-    if spar_knapp:
-        if st.button("💾 Spara till Mina Recept", key=f"save_{nyckel}"):
-            try:
-                supabase.table("recept").insert({
-                    "user_id": st.session_state["user"].id,
-                    "title": rec_data.get("title"),
-                    "category": rec_data.get("category"),
-                    "portioner": till_int(rec_data.get("portioner")),
-                    "portioner_enhet": rec_data.get("portioner_enhet"),
-                    "ingredients": rec_data.get("ingredients"),
-                    "instructions": rec_data.get("instructions")
-                }).execute()
-                st.success("Receptet har sparats till dina recept!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Kunde inte spara receptet: {e}")
 
 # --- INLOGGNING ---
 if "user" not in st.session_state:
@@ -149,7 +101,7 @@ with st.sidebar:
         st.rerun()
 
 # --- FLIKAR ---
-tab1, tab2, tab3 = st.tabs(["📚 Mina Recept", "🔍 Sök Recept", "📸 Skanna Recept"])
+tab1, tab2, tab3, tab4 = st.tabs(["📚 Mina Recept", "🔍 Sök Recept", "📸 Skanna Recept", "🤖 Generera med AI"])
 
 # --- FLIK 1: MINA RECEPT ---
 with tab1:
@@ -157,7 +109,7 @@ with tab1:
     try:
         res = supabase.table("recept").select("*").eq("user_id", st.session_state["user"].id).execute()
         recept_lista = res.data or []
-
+        
         if not recept_lista:
             st.info("Du har inga sparade recept ännu.")
         else:
@@ -172,10 +124,13 @@ with tab1:
                         st.write(f"**Portioner:** {r.get('portioner', 4)} {r.get('portioner_enhet', 'portioner')}")
                     with col_b:
                         st.write(f"**Kategori:** {r.get('category', 'Allmänt')}")
+                    
                     st.subheader("Ingredienser")
                     st.text(formatera_ingredienser(r.get("ingredients", "")))
+                    
                     st.subheader("Instruktioner")
                     st.text(ta_bort_numrering(r.get("instructions", "")))
+                    
                     if st.button("🗑️ Ta bort recept", key=f"del_{r.get('id')}"):
                         supabase.table("recept").delete().eq("id", r.get("id")).execute()
                         st.success("Receptet borttaget!")
@@ -185,95 +140,94 @@ with tab1:
 
 # --- FLIK 2: SÖK RECEPT ---
 with tab2:
-    st.header("🔍 Sök Recept")
-    st.caption("Sök bland dina sparade recept och få nya AI-förslag baserat på ingredienser.")
-
+    st.header("🔍 Sök Recept (Inkl. dina och nya förslag)")
+    st.write("Skriv in ingredienser du vill söka på för att hitta matchande recept.")
+    
     ingrediens_input = st.text_input("Ingredienser (separera med kommatecken, t.ex. kyckling, ris):", key="sok_ingrediens_input")
-
-    if "sok_state" not in st.session_state:
-        st.session_state["sok_state"] = None
-
+    
     if ingrediens_input:
-        # Ny sökning om ingredienserna ändrats
-        if st.session_state["sok_state"] is None or st.session_state["sok_state"].get("input") != ingrediens_input:
-            st.session_state["sok_state"] = {"input": ingrediens_input, "ai_forslag": [], "har_hamtat": False}
-
-    if ingrediens_input and st.session_state["sok_state"] is not None:
-        state = st.session_state["sok_state"]
         sokte_ingredienser = [i.strip().lower() for i in ingrediens_input.split(",") if i.strip()]
-
-        # Egna träffar
+        
         try:
             res = supabase.table("recept").select("*").eq("user_id", st.session_state["user"].id).execute()
             egna_recept = res.data or []
-            egna_traffar = []
+            
+            matchade_recept = []
+            
             for r in egna_recept:
                 sok_text = (r.get("title", "") + " " + r.get("ingredients", "")).lower()
                 matches = sum(1 for ing in sokte_ingredienser if ing in sok_text)
                 if matches > 0:
-                    egna_traffar.append((matches, r))
-            egna_traffar.sort(key=lambda x: x[0], reverse=True)
+                    matchade_recept.append({"source": "egna", "data": r, "score": matches})
+            
+            matchade_recept.sort(key=lambda x: x["score"], reverse=True)
+            
+            with st.spinner("Sök bland recept..."):
+                prompt = f"""
+                Generera 3 till 5 goda recept som matchar följande ingredienser: {ingrediens_input}.
+                Returnera svaret som en giltig JSON-lista där varje objekt har:
+                - "title": Receptets namn
+                - "category": Kategori (t.ex. Middag, Lunch, Övrigt)
+                - "portioner": Antal portioner (tal)
+                - "portioner_enhet": Enhet (t.ex. portioner)
+                - "ingredients": Ingredienser på en rad var
+                - "instructions": Instruktioner utan numrering
+                """
+                response = client.models.generate_content(
+                    model=GEMINI_MODEL,
+                    contents=prompt
+                )
+                clean_json = re.sub(r'```json\s*|\s*```', '', response.text).strip()
+                ai_forslag = json.loads(clean_json)
+                
+                for af in ai_forslag:
+                    matchade_recept.append({"source": "ai", "data": af, "score": 1})
+            
+            if matchade_recept:
+                st.subheader("Matchande recept (Klicka på ett namn för att läsa):")
+                
+                for idx, item in enumerate(matchade_recept):
+                    rec_data = item["data"]
+                    titel_prefix = "⭐ [Ditt sparade] " if item["source"] == "egna" else "🤖 [AI-förslag] "
+                    
+                    with st.expander(f"{titel_prefix}{rec_data.get('title')} ({rec_data.get('category', 'Middag')})"):
+                        st.write(f"**Portioner:** {rec_data.get('portioner', 4)} {rec_data.get('portioner_enhet', 'portioner')}")
+                        st.subheader("Ingredienser")
+                        st.text(formatera_ingredienser(rec_data.get("ingredients", "")))
+                        st.subheader("Instruktioner")
+                        st.text(ta_bort_numrering(rec_data.get("instructions", "")))
+                        
+                        if item["source"] == "ai":
+                            if st.button("💾 Spara till Mina Recept", key=f"save_ai_{idx}"):
+                                try:
+                                    supabase.table("recept").insert({
+                                        "user_id": st.session_state["user"].id,
+                                        "title": rec_data.get("title"),
+                                        "category": rec_data.get("category"),
+                                        "portioner": rec_data.get("portioner"),
+                                        "portioner_enhet": rec_data.get("portioner_enhet"),
+                                        "ingredients": rec_data.get("ingredients"),
+                                        "instructions": rec_data.get("instructions")
+                                    }).execute()
+                                    st.success("Receptet har sparats till dina recept!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Kunde inte spara receptet: {e}")
+            else:
+                st.info("Inga recept hittades för dessa ingredienser.")
+                
         except Exception as e:
-            st.error(f"Kunde inte hämta recept: {e}")
-            egna_traffar = []
-
-        def hamta_ai_forslag():
-            prompt = f"""
-            Generera 3 till 5 goda recept som matchar följande ingredienser: {ingrediens_input}.
-            Undvik dessa redan föreslagna titlar: {', '.join([f.get('title', '') for f in state['ai_forslag']]) or 'inga'}.
-            Returnera svaret som en giltig JSON-lista där varje objekt har:
-            - "title": Receptets namn
-            - "category": Kategori (t.ex. Middag, Lunch, Övrigt)
-            - "portioner": Antal portioner (tal)
-            - "portioner_enhet": Enhet (t.ex. portioner)
-            - "ingredients": Ingredienser på en rad var
-            - "instructions": Instruktioner utan numrering
-            """
-            response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-            clean_json = re.sub(r'```json\s*|\s*```', '', response.text).strip()
-            nya = json.loads(clean_json)
-            state["ai_forslag"].extend(nya)
-            state["har_hamtat"] = True
-
-        # Hämta första omgången automatiskt
-        if not state["har_hamtat"]:
-            with st.spinner("Söker bland dina recept och tar fram förslag..."):
-                try:
-                    hamta_ai_forslag()
-                except Exception as e:
-                    st.error(f"Kunde inte hämta AI-förslag: {e}")
-
-        if egna_traffar:
-            st.subheader("Dina sparade recept")
-            for i, (score, rec_data) in enumerate(egna_traffar):
-                with st.expander(f"⭐ {rec_data.get('title')} ({rec_data.get('category', 'Övrigt')})"):
-                    rendera_receptkort(rec_data, f"egen_{rec_data.get('id')}_{i}")
-
-        if state["ai_forslag"]:
-            st.subheader("AI-förslag")
-            for i, rec_data in enumerate(state["ai_forslag"]):
-                with st.expander(f"🤖 {rec_data.get('title')} ({rec_data.get('category', 'Middag')})"):
-                    rendera_receptkort(rec_data, f"ai_{i}", spar_knapp=True)
-        else:
-            st.info("Inga AI-förslag hittades för dessa ingredienser.")
-
-        if st.button("➕ Visa fler recept"):
-            with st.spinner("Hämtar fler förslag..."):
-                try:
-                    hamta_ai_forslag()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Kunde inte hämta fler förslag: {e}")
+            st.error(f"Ett fel uppstod vid sökning: {e}")
 
 # --- FLIK 3: SKANNA RECEPT ---
 with tab3:
     st.header("📸 Skanna receptbild")
     uploaded_file = st.file_uploader("Välj eller ta en bild på ett recept", type=["jpg", "jpeg", "png"])
-
+    
     if uploaded_file:
         image = Image.open(uploaded_file)
         st.image(image, caption="Uppladdad bild", use_container_width=True)
-
+        
         if st.button("🪄 Tolka med Gemini AI"):
             with st.spinner("Analyserar bilden..."):
                 try:
@@ -286,7 +240,10 @@ with tab3:
                     - "ingredients": En sträng med varje ingrediens på ny rad.
                     - "instructions": Steg-för-steg instruktioner utan numrering.
                     """
-                    response = client.models.generate_content(model=GEMINI_MODEL, contents=[prompt, image])
+                    response = client.models.generate_content(
+                        model=GEMINI_MODEL,
+                        contents=[prompt, image]
+                    )
                     clean_text = re.sub(r'```json\s*|\s*```', '', response.text).strip()
                     data = json.loads(clean_text)
                     st.session_state["scanned_recipe"] = data
@@ -296,27 +253,26 @@ with tab3:
 
     if "scanned_recipe" in st.session_state:
         sr = st.session_state["scanned_recipe"]
-        kategorier = ["Middag", "Lunch", "Frukost", "Efterrätt", "Bakning", "Övrigt"]
         st.subheader("Granska & Spara")
         with st.form("save_scanned_form"):
             title = st.text_input("Titel", value=sr.get("title", ""))
-            category = st.selectbox("Kategori", kategorier, index=kategori_index(sr.get("category"), kategorier))
+            category = st.selectbox("Kategori", ["Middag", "Lunch", "Frukost", "Efterrätt", "Bakning", "Övrigt"], index=0)
             col1, col2 = st.columns(2)
             with col1:
-                portioner = st.number_input("Portioner", value=till_int(sr.get("portioner")), step=1)
+                portioner = st.number_input("Portioner", value=float(sr.get("portioner", 4)))
             with col2:
                 portioner_enhet = st.text_input("Enhet", value=sr.get("portioner_enhet", "portioner"))
-
+            
             ingredients = st.text_area("Ingredienser", value=sr.get("ingredients", ""), height=150)
             instructions = st.text_area("Instruktioner", value=sr.get("instructions", ""), height=150)
-
+            
             if st.form_submit_button("💾 Spara till Mina Recept"):
                 try:
                     supabase.table("recept").insert({
                         "user_id": st.session_state["user"].id,
                         "title": title,
                         "category": category,
-                        "portioner": till_int(portioner),
+                        "portioner": portioner,
                         "portioner_enhet": portioner_enhet,
                         "ingredients": ingredients,
                         "instructions": instructions
@@ -326,3 +282,66 @@ with tab3:
                     st.rerun()
                 except Exception as e:
                     st.error(f"Kunde inte spara receptet: {e}")
+
+# --- FLIK 4: GENERERA MED AI ---
+with tab4:
+    st.header("🤖 Generera nya recept med AI")
+    ai_ingredienser = st.text_area("Vilka ingredienser har du hemma?", placeholder="T.ex. lax, spenat, grädde", height=100)
+    onskemal = st.text_input("Övriga önskemål:", placeholder="T.ex. snabblagat under 20 min")
+    
+    if st.button("✨ Generera nytt receptförslag"):
+        if not ai_ingredienser:
+            st.warning("Skriv in minst en ingrediens!")
+        else:
+            with st.spinner("Gemini komponerar ett recept..."):
+                try:
+                    prompt = f"""
+                    Generera ett välsmakande recept baserat på:
+                    Ingredienser: {ai_ingredienser}
+                    Önskemål: {onskemal}
+
+                    Returnera i EXAKT JSON-format med nycklarna:
+                    - "title": Receptets namn
+                    - "category": Kategori (Middag, Lunch, Frukost, Efterrätt, Bakning, Övrigt)
+                    - "portioner": Antal portioner som ett numeriskt tal
+                    - "portioner_enhet": Enhet (t.ex. portioner)
+                    - "ingredients": Ingredienser på en rad var
+                    - "instructions": Instruktioner utan numrering
+                    """
+                    response = client.models.generate_content(
+                        model=GEMINI_MODEL,
+                        contents=prompt
+                    )
+                    clean_json = re.sub(r'```json\s*|\s*```', '', response.text).strip()
+                    generated_recipe = json.loads(clean_json)
+                    st.session_state["generated_recipe"] = generated_recipe
+                    st.success("Recept genererat!")
+                except Exception as e:
+                    st.error(f"Kunde inte generera recept: {e}")
+
+    if "generated_recipe" in st.session_state:
+        gen = st.session_state["generated_recipe"]
+        st.divider()
+        st.subheader(f"🍽️ Förslag: {gen.get('title')}")
+        st.write(f"**Kategori:** {gen.get('category')} | **Portioner:** {gen.get('portioner')} {gen.get('portioner_enhet')}")
+        st.subheader("Ingredienser")
+        st.text(formatera_ingredienser(gen.get("ingredients", "")))
+        st.subheader("Instruktioner")
+        st.text(ta_bort_numrering(gen.get("instructions", "")))
+        
+        if st.button("💾 Spara detta recept till Mina Recept"):
+            try:
+                supabase.table("recept").insert({
+                    "user_id": st.session_state["user"].id,
+                    "title": gen.get("title"),
+                    "category": gen.get("category"),
+                    "portioner": gen.get("portioner"),
+                    "portioner_enhet": gen.get("portioner_enhet"),
+                    "ingredients": gen.get("ingredients"),
+                    "instructions": gen.get("instructions")
+                }).execute()
+                st.success("Sparat till ditt bibliotek!")
+                del st.session_state["generated_recipe"]
+                st.rerun()
+            except Exception as e:
+                st.error(f"Kunde inte spara: {e}")
