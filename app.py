@@ -94,7 +94,7 @@ def skala_ingredienser(text, original_servings, target_servings):
     return "\n".join(skalade_rader)
 
 def rendera_receptvisning(rec_data, unik_nyckel, ta_med_naring=True, kompakt=False):
-    """Delad receptvisning. kompakt=True ger mindre rubriker och tajtare layout."""
+    """Delad receptvisning. kompakt=True ger mindre rubriker, mindre bild och tajtare layout."""
     titel = rec_data.get("title") or rec_data.get("titel") or "Namnlöst recept"
     kategori = rec_data.get("category") or rec_data.get("kategori") or "Övrigt"
     ingredients = rec_data.get("ingredients") or ""
@@ -108,7 +108,7 @@ def rendera_receptvisning(rec_data, unik_nyckel, ta_med_naring=True, kompakt=Fal
         ingredients = rec_data.get("text")
 
     if image_url:
-        st.image(image_url, caption="Skannat recept", width=200 if kompakt else 300)
+        st.image(image_url, caption="Skannat recept", width=160 if kompakt else 300)
 
     col_p1, col_p2 = st.columns([1, 2])
     with col_p1:
