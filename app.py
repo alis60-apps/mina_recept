@@ -306,7 +306,8 @@ if not st.session_state["user"] or not st.session_state["auth_session"]:
                         break
             except Exception:
                 pass
-
+        if adress_ren and adress_ren == ADMIN_EMAIL.lower():
+            adress_tillaten = True
         if not adress_tillaten:
             st.caption("Adressen är inte godkänd än. Begär konto nedan.")
         elif adress_har_konto:
