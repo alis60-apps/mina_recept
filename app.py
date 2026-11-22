@@ -28,7 +28,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY"))
 client = genai.Client(api_key=gemini_api_key)
 
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_MODEL = "gemini-3.8-flash"
 
 VERSION = "v1.69"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
