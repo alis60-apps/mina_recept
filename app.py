@@ -8,20 +8,19 @@ import streamlit as st
 import streamlit.components.v1 as components
 from supabase import create_client, Client
 from google import genai
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# --- KEEP-ALIVE (Förhindrar timeout vid inaktivitet) ---
 components.html(
     """
     <script>
     setInterval(function() {
         window.dispatchEvent(new Event('resize'));
-    }, 240000); // Pingar servern var 4:e minut
+    }, 240000);
     </script>
     """,
     height=0
 )
 
-# --- SUPABASE & GEMINI CONFIG ---
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL"))
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", os.environ.get("SUPABASE_KEY"))
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -31,13 +30,10 @@ client = genai.Client(api_key=gemini_api_key)
 
 GEMINI_MODEL = "gemini-3.8-flash"
 
-# --- VERSIONSHANTERING ---
-VERSION = "v1.67"
+VERSION = "v1.68"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
-# --- HJÄLPER-FUNKTIONER FÖR FORMATERING & PORTIONSOMRÄKNING ---
 def formatera_ingredienser(text):
-    """Säkerställer att varje ingrediens visas på en ny rad med en punkt framför."""
     if not text:
         return ""
     rader = [r.strip() for r in str(text).split("\n") if r.strip()]
@@ -50,7 +46,6 @@ def formatera_ingredienser(text):
     return "\n".join(formaterade)
 
 def ta_bort_numrering(text):
-    """Tar bort numrering i början av rader (t.ex. '1. ', '2) ') så att tillagningen visas utan nummer."""
     if not text:
         return ""
     rader = str(text).split("\n")
@@ -61,7 +56,6 @@ def ta_bort_numrering(text):
     return "\n".join(rensade)
 
 def skala_ingredienser(text, original_servings, target_servings):
-    """Skalar om siffervärden i ingredienstexten baserat på förhållandet mellan målportioner och originalportioner."""
     if not text or not original_servings or original_servings <= 0 or original_servings == target_servings:
         return text
 
@@ -93,8 +87,19 @@ def skala_ingredienser(text, original_servings, target_servings):
     skalade_rader = [re.sub(pattern, convert_match, rad) for rad in rader]
     return "\n".join(skalade_rader)
 
+def bygg_html_lista(text, med_punkt=True):
+    rader = [r.strip() for r in str(text or "").split("\n") if r.strip()]
+    if not rader:
+        return ""
+    punkter = []
+    for r in rader:
+        r = re.sub(r'^[-•*]\s*', '', r)
+        punkter.append(f"<li>{r}</li>")
+    tag = "ul" if med_punkt else "div"
+    stil = "margin:0;padding-left:18px;line-height:1.3;" if med_punkt else "line-height:1.35;"
+    return f"<{tag} style=\"{stil}\">" + "".join(punkter) + f"</{tag}>"
+
 def rendera_receptvisning(rec_data, unik_nyckel, ta_med_naring=True, kompakt=False):
-    """Delad receptvisning. kompakt=True ger mindre rubriker, mindre bild och tajtare layout."""
     titel = rec_data.get("title") or rec_data.get("titel") or "Namnlöst recept"
     kategori = rec_data.get("category") or rec_data.get("kategori") or "Övrigt"
     ingredients = rec_data.get("ingredients") or ""
@@ -120,16 +125,19 @@ def rendera_receptvisning(rec_data, unik_nyckel, ta_med_naring=True, kompakt=Fal
     if valda_portioner != orig_portioner:
         st.caption(f"ℹ️ Omräknat från {orig_portioner} {orig_enhet} till {valda_portioner} {orig_enhet}.")
 
+    skalad_ing = skala_ingredienser(ingredients, orig_portioner, valda_portioner)
+    rensad_inst = ta_bort_numrering(instructions)
+
     if kompakt:
         st.caption("🛒 Ingredienser")
-        st.markdown(formatera_ingredienser(skala_ingredienser(ingredients, orig_portioner, valda_portioner)))
+        st.markdown(bygg_html_lista(formatera_ingredienser(skalad_ing), med_punkt=True), unsafe_allow_html=True)
         st.caption("👨‍🍳 Tillagning")
-        st.markdown(ta_bort_numrering(instructions))
+        st.markdown(bygg_html_lista(rensad_inst, med_punkt=False), unsafe_allow_html=True)
     else:
         st.markdown("### 🛒 Ingredienser")
-        st.markdown(formatera_ingredienser(skala_ingredienser(ingredients, orig_portioner, valda_portioner)))
+        st.markdown(formatera_ingredienser(skalad_ing))
         st.markdown("### 👨‍🍳 Tillagning")
-        st.markdown(ta_bort_numrering(instructions))
+        st.markdown(rensad_inst)
 
     if ta_med_naring and nutrition_dict and isinstance(nutrition_dict, dict):
         p_data = nutrition_dict.get("per_portion", {})
@@ -148,7 +156,6 @@ def rendera_receptvisning(rec_data, unik_nyckel, ta_med_naring=True, kompakt=Fal
 
     return titel, kategori
 
-# --- INLOGGNINGSHANTERING ---
 if "user" not in st.session_state:
     st.session_state["user"] = None
 
@@ -183,14 +190,12 @@ if not st.session_state["user"]:
 
     st.stop()
 
-# --- SIDOMENY (SIDEBAR) ---
 with st.sidebar:
     st.header("⚙️ Konto & Inställningar")
     st.write(f"Inloggad som:\n**{st.session_state['user'].email}**")
 
     st.divider()
 
-    # --- KNAPP FÖR ATT HÅLLA SKÄRMEN TÄND (WAKE LOCK) ---
     st.subheader("📱 Skärminställning")
     wake_lock_html = """
     <div style="margin-bottom: 15px;">
@@ -318,7 +323,6 @@ if "uploader_key" not in st.session_state:
 
 aktiv_delad_användare = st.session_state.get("vald_delad_användare", None)
 
-# --- OM EN DELAD BOK ÄR VALD I SIDOMENYN ---
 if aktiv_delad_användare:
     b_namn = st.session_state["book_name_dict"].get(aktiv_delad_användare, "Receptbok")
     st.info(f"📖 Du läser nu den publika receptboken: **{b_namn}**")
@@ -337,7 +341,6 @@ if aktiv_delad_användare:
                 rendera_receptvisning(r, f"delat_{r.get('id', uuid.uuid4())}")
 
 else:
-    # --- VANLIGA HUVUDAPPEN (MIN BOK) ---
     flik1, flik2, flik3 = st.tabs(["📷 Skanna Recept", "📚 Mina Recept", "🔍 Sök Recept"])
 
     with flik1:
@@ -358,19 +361,19 @@ else:
                 with st.spinner("Analyserar handstil, portionsantal och beräknar näringsvärden & vitaminer..."):
                     try:
                         prompt = (
-                    f"Generera ÅTTA (8) goda recept som matchar följande ingredienser: {ingrediens_input}. "
-                    f"Undvik dessa redan föreslagna titlar: {', '.join(befintliga_titlar) if befintliga_titlar else 'inga'}. "
-                    "Generera alla åtta, sammanfatta inte och sluta inte i förtid. "
-                    "Returnera ett recept i taget som enskilda JSON-objekt, ETT per rad, utan array-klamrar och utan mellanslag mellan objekten. "
-                    "Varje objekt ska ha nycklarna:\n"
-                    "- 'title': Receptets namn\n"
-                    "- 'category': Kategori (t.ex. Förrätt, Huvudrätt, Efterrätt, Bakverk)\n"
-                    "- 'portioner_antal': Antal portioner som heltal\n"
-                    "- 'portioner_enhet': Enhet (t.ex. portioner)\n"
-                    "- 'ingredients': Ingredienser på egen rad, med bindestreck i början\n"
-                    "- 'instructions': Tillagningssteg utan numrering\n"
-                    "- 'nutrition': Objekt med 'per_portion' och 'per_100g': 'energi', 'protein', 'kolhydrater', 'socker', 'fett', 'mattat_fett', 'fiber', 'salt', 'c_vitamin', 'd_vitamin', 'jarn'"
-                )
+                            "Analysera denna bild av ett recept ytterst noggrant från början till slut. "
+                            "Leta särskilt efter portionsangivelser/antal högst upp, i rubriceringen eller marginalen (t.ex. '12 st', '20 kakor', 'för 4 personer'). "
+                            "Plocka bort portionsangivelsen från själva ingredienslistan så att den inte dubbleras där. "
+                            "Returnera svaret strikt som en JSON-struktur med följande nycklar:\n"
+                            "- 'title': Receptets namn\n"
+                            "- 'category': Passande kategori (t.ex. Förrätt, Huvudrätt, Efterrätt, Bakverk)\n"
+                            "- 'portioner_antal': Antal portioner/stycken som ett heltal (t.ex. 12 för 12 st, 20 för 20 kakor, eller 4 för 4 pers)\n"
+                            "- 'portioner_enhet': Enheten som en kort sträng (t.ex. 'st', 'kakor', 'portioner', 'muffins', 'plåt'). Standard är 'portioner'.\n"
+                            "- 'ingredients': Ingredienslistan formaterad som en sträng där VARJE ingrediens ligger på en egen ny rad med bindestreck i början (t.ex. '- 2 st ägg\\n- 1 dl mjölk'). Inkludera INGA rubriker som '12 st' här.\n"
+                            "- 'instructions': HELA tillagningsstegen renskrivna som vanliga stycken UTAN NÅGON NUMRERING (inga siffror som 1., 2. i början av rader).\n"
+                            "- 'nutrition': Ett objekt med uppskattade näringsvärden uppdelade i 'per_portion' och 'per_100g'. Inkludera nycklarna: 'energi', 'protein', 'kolhydrater', 'socker', 'fett', 'mattat_fett', 'fiber', 'salt', samt 'c_vitamin', 'd_vitamin', 'jarn'.\n"
+                            "Svara ENDAST med giltig JSON utan markdown-kodblock."
+                        )
 
                         response = client.models.generate_content(
                             model=GEMINI_MODEL,
@@ -620,7 +623,8 @@ else:
                                       border: none;
                                       padding: 8px 14px;
                                       border-radius: 6px;
-                                      font-weight: 600;
+                                      font-weight:
+                                 font-weight: 600;
                                       cursor: pointer;
                                       font-size: 13px;
                                       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -716,14 +720,9 @@ else:
             state = st.session_state["sok_state"]
             sokte_ingredienser = [i.strip().lower() for i in ingrediens_input.split(",") if i.strip()]
 
-            # --- Egna träffar filtreras i databasen (snabbare än att hämta allt) ---
             egna_traffar = []
-            egoch_filter = "title.ilike.%{}%,ingredients.ilike.%{}%".format(
-                ingrediens_input.replace(",", "%"), ingrediens_input.replace(",", "%")
-            )
             try:
                 q = supabase.table("recept").select("*").eq("user_id", st.session_state["user"].id)
-                # bygg OR över alla ingredienser så bara träffar hämtas
                 or_delar = []
                 for ing in sokte_ingredienser:
                     or_delar.append(f"title.ilike.%{ing}%")
@@ -797,15 +796,14 @@ else:
                     if st.button("💾 Spara till Mina recept", key=f"spara_ai_{idx}"):
                         spara_ai(norm)
 
-            def ett_anrop():
-                befintliga_titlar = [f.get("title", "") for f in state["ai_forslag"]]
+            def ett_anrop(inriktning, befintliga_titlar):
                 prompt = (
-                    f"Generera goda recept som matchar följande ingredienser: {ingrediens_input}. "
+                    f"Generera 3 goda recept av typen {inriktning} som matchar följande ingredienser: {ingrediens_input}. "
                     f"Undvik dessa redan föreslagna titlar: {', '.join(befintliga_titlar) if befintliga_titlar else 'inga'}. "
-                    "Returnera ett recept i taget som enskilda JSON-objekt, ETT per rad, utan array-klamrar och utan mellanslag mellan objekten. "
+                    "Returnera ett recept i taget som enskilda JSON-objekt, ETT per rad, utan array-klamrar. "
                     "Varje objekt ska ha nycklarna:\n"
                     "- 'title': Receptets namn\n"
-                    "- 'category': Kategori (t.ex. Förrätt, Huvudrätt, Efterrätt, Bakverk)\n"
+                    "- 'category': Kategori\n"
                     "- 'portioner_antal': Antal portioner som heltal\n"
                     "- 'portioner_enhet': Enhet (t.ex. portioner)\n"
                     "- 'ingredients': Ingredienser på egen rad, med bindestreck i början\n"
@@ -813,48 +811,55 @@ else:
                     "- 'nutrition': Objekt med 'per_portion' och 'per_100g': 'energi', 'protein', 'kolhydrater', 'socker', 'fett', 'mattat_fett', 'fiber', 'salt', 'c_vitamin', 'd_vitamin', 'jarn'"
                 )
                 buf = {"rad": ""}
-                start_idx = len(state["ai_forslag"])
+                resultat = []
 
-                def bearbeta_rad(rad):
+                def ta_rad(rad):
                     rad = rad.strip().rstrip(",")
                     if not rad.startswith("{") or not rad.endswith("}"):
                         return
                     try:
-                        ny = json.loads(rad)
+                        resultat.append(json.loads(rad))
                     except json.JSONDecodeError:
-                        return
-                    titlar = {f.get("title", "").lower() for f in state["ai_forslag"]}
-                    if str(ny.get("title", "")).lower() in titlar:
-                        return
-                    state["ai_forslag"].append(ny)
-                    rita_ai_kort(ny, start_idx + len(state["ai_forslag"]) - 1)
+                        pass
 
                 for chunk in client.models.generate_content_stream(model=GEMINI_MODEL, contents=prompt):
-                    if not chunk.text:
-                        continue
-                    buf["rad"] += chunk.text
-                    while "\n" in buf["rad"]:
-                        klar, buf["rad"] = buf["rad"].split("\n", 1)
-                        bearbeta_rad(klar)
+                    if chunk.text:
+                        buf["rad"] += chunk.text
+                        while "\n" in buf["rad"]:
+                            klar, buf["rad"] = buf["rad"].split("\n", 1)
+                            ta_rad(klar)
                 if buf["rad"].strip():
-                    bearbeta_rad(buf["rad"])
-                return len(state["ai_forslag"]) - start_idx
+                    ta_rad(buf["rad"])
+                return resultat
 
-            def fyll_pa(mal, max_varv=2):
-                forvarv = 0
-                while len(state["ai_forslag"]) < mal and forvarv < max_varv:
-                    forvarv += 1
-                    nya = ett_anrop()
-                    if nya == 0:
-                        break
+            def kor_parallellt(tidsgrans=8):
+                befintliga = [f.get("title", "") for f in state["ai_forslag"]]
+                inriktningar = ["huvudrätt", "förrätt eller tillbehör", "efterrätt eller bakverk"]
+                insamlade = []
+                ex = ThreadPoolExecutor(max_workers=3)
+                futurer = [ex.submit(ett_anrop, inr, befintliga) for inr in inriktningar]
+                try:
+                    for f in as_completed(futurer, timeout=tidsgrans):
+                        try:
+                            insamlade.extend(f.result())
+                        except Exception as e:
+                            st.caption(f"Ett anrop misslyckades: {e}")
+                except Exception:
+                    pass
+
+                titlar = {f.get("title", "").lower() for f in state["ai_forslag"]}
+                for rd in insamlade:
+                    t = str(rd.get("title", "")).lower()
+                    if t and t not in titlar:
+                        titlar.add(t)
+                        state["ai_forslag"].append(rd)
                 state["har_hamtat"] = True
 
             if not state["har_hamtat"]:
                 with st.spinner("Tar fram receptförslag..."):
-                    try:
-                        fyll_pa(6)
-                    except Exception as e:
-                        st.error(f"Kunde inte hämta AI-förslag: {e}")
+                    kor_parallellt()
+                if state["ai_forslag"]:
+                    st.rerun()
             else:
                 for i, rd in enumerate(state["ai_forslag"]):
                     rita_ai_kort(rd, i)
@@ -862,9 +867,7 @@ else:
             if state["ai_forslag"]:
                 if st.button("➕ Visa fler recept"):
                     with st.spinner("Hämtar fler förslag..."):
-                        try:
-                            fyll_pa(len(state["ai_forslag"]) + 6)
-                        except Exception as e:
-                            st.error(f"Kunde inte hämta fler förslag: {e}")
+                        kor_parallellt()
+                        st.rerun()
             elif state["har_hamtat"]:
-                st.info("Inga AI-förslag hittades för dessa ingredienser.")
+                st.info("Inga AI-förslag hittades för dessa ingredienser.")     
