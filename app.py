@@ -36,7 +36,7 @@ client = genai.Client(api_key=gemini_api_key)
 
 GEMINI_MODEL = "gemini-3.8-flash"
 
-VERSION = "v1.84"
+VERSION = "v1.85"
 
 
 def skapa_supabase() -> Client:
@@ -282,15 +282,49 @@ if not st.session_state["user"] or not st.session_state["auth_session"]:
     st.session_state["user"] = None
     st.subheader("🔑 Logga in")
 
+    email = st.text_input("E-post", key="login_email", autocomplete="username")
+
+    adress_ren = (email or "").strip().lower()
+    adress_giltig = "@" in adress_ren and "." in adress_ren
+    adress_tillaten = False
+    adress_har_konto = False
+
+    if adress_giltig:
+        try:
+            adress_tillaten = bool(
+                supabase.table("konto_forfragningar").select("id").eq(
+                    "email", adress_ren
+                ).eq("status", "tillaten").execute().data
+            )
+        except Exception:
+            adress_tillaten = False
+        if adress_tillaten:
+            try:
+                for u in admin_supabase.auth.admin.list_users():
+                    if (u.email or "").lower() == adress_ren:
+                        adress_har_konto = True
+                        break
+            except Exception:
+                pass
+
+        if not adress_tillaten:
+            st.caption("Adressen är inte godkänd än. Begär konto nedan.")
+        elif adress_har_konto:
+            st.caption("Adressen har redan ett konto – logga in.")
+        else:
+            st.caption("Adressen är godkänd. Välj ett lösenord och skapa kontot.")
+
     with st.form("login_form"):
-        email = st.text_input("E-post", key="login_email", autocomplete="username")
         password = st.text_input("Lösenord", type="password", key="login_password", autocomplete="current-password")
 
         col1, col2 = st.columns(2)
         with col1:
-            submit_login = st.form_submit_button("Logga in")
+            submit_login = st.form_submit_button("Logga in", disabled=not adress_giltig)
         with col2:
-            submit_signup = st.form_submit_button("Skapa konto")
+            submit_signup = st.form_submit_button(
+                "Skapa konto",
+                disabled=not (adress_giltig and adress_tillaten and not adress_har_konto),
+            )
 
         if submit_login:
             try:
@@ -298,19 +332,26 @@ if not st.session_state["user"] or not st.session_state["auth_session"]:
                 if auth_res.session is None:
                     st.error("Inloggningen kräver e-postbekräftelse. Kolla din inkorg.")
                 else:
-                    st.session_state["auth_session"] = {
-                        "access_token": auth_res.session.access_token,
-                        "refresh_token": auth_res.session.refresh_token,
-                    }
-                    st.session_state["user"] = auth_res.user
-                    st.rerun()
+                    if not adress_tillaten:
+                        try:
+                            supabase.auth.sign_out()
+                        except Exception:
+                            pass
+                        st.error("Adressen är inte godkänd för appen. Begär konto nedan.")
+                    else:
+                        st.session_state["auth_session"] = {
+                            "access_token": auth_res.session.access_token,
+                            "refresh_token": auth_res.session.refresh_token,
+                        }
+                        st.session_state["user"] = auth_res.user
+                        st.rerun()
             except Exception as e:
                 st.error(f"Fel vid inloggning: {e}")
 
         if submit_signup:
             try:
                 supabase.auth.sign_up({"email": email, "password": password})
-                st.info("Konto skapat! Om e-postbekräftelse krävs, kolla din inkorg.")
+                st.info("Konto skapat! Bekräfta via mejlet och logga sedan in.")
             except Exception as e:
                 st.error(f"Kunde inte skapa konto: {e}")
 
@@ -339,7 +380,7 @@ if not st.session_state["user"] or not st.session_state["auth_session"]:
                 else:
                     try:
                         supabase.table("konto_forfragningar").insert({"email": adress}).execute()
-                        st.success("Förfrågan skickad. Du får inloggningsuppgifter när kontot är godkänt.")
+                        st.success("Förfrågan skickad. Du får besked när adressen är godkänd.")
                     except Exception as e:
                         if "duplicate" in str(e).lower() or "unique" in str(e).lower():
                             st.info("Det finns redan en förfrågan på den adressen.")
@@ -512,45 +553,57 @@ with st.sidebar:
 
     if ADMIN_EMAIL and st.session_state["user"].email == ADMIN_EMAIL:
         st.divider()
-        st.subheader("👤 Kontoförfrågningar")
+        st.subheader("👤 Åtkomstlista")
         try:
             förfrågningar = admin_supabase.table("konto_forfragningar").select("*").order("skapad").execute().data or []
         except Exception as e:
-            st.error(f"Kunde inte hämta förfrågningar: {e}")
+            st.error(f"Kunde inte hämta listan: {e}")
             förfrågningar = []
 
-        if not förfrågningar:
-            st.caption("Inga väntande förfrågningar.")
-
-        for f in förfrågningar:
-            if f.get("status") == "godkand":
-                st.code(f["email"], language=None)
-                st.caption("Lösenord att mejla:")
-                st.code(f.get("losenord") or "", language=None)
-                if st.button("Klar", key=f"klar_{f['id']}"):
-                    admin_supabase.table("konto_forfragningar").delete().eq("id", f["id"]).execute()
-                    st.rerun()
-            else:
-                st.write(f"**{f['email']}**")
-                c1, c2 = st.columns(2)
-                if c1.button("Godkänn", key=f"ok_{f['id']}"):
-                    lösen = uuid.uuid4().hex[:10]
+        with st.form("lagg_till_adress"):
+            tillagg_email = st.text_input("Lägg till adress direkt", key="tillagg_email")
+            tillagg = st.form_submit_button("Lägg till")
+            if tillagg:
+                if not tillagg_email or "@" not in tillagg_email:
+                    st.error("Ange en giltig e-postadress.")
+                else:
                     try:
-                        admin_supabase.auth.admin.create_user({
-                            "email": f["email"],
-                            "password": lösen,
-                            "email_confirm": True,
-                        })
-                        admin_supabase.table("konto_forfragningar").update({
-                            "status": "godkand",
-                            "losenord": lösen,
-                        }).eq("id", f["id"]).execute()
+                        admin_supabase.table("konto_forfragningar").upsert({
+                            "email": tillagg_email.strip().lower(),
+                            "status": "tillaten",
+                        }, on_conflict="email").execute()
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Kunde inte skapa kontot: {e}")
-                if c2.button("Neka", key=f"nej_{f['id']}"):
-                    admin_supabase.table("konto_forfragningar").delete().eq("id", f["id"]).execute()
-                    st.rerun()
+                        st.error(f"Kunde inte lägga till: {e}")
+
+        väntande = [f for f in förfrågningar if f.get("status") != "tillaten"]
+        tillatna = [f for f in förfrågningar if f.get("status") == "tillaten"]
+
+        if väntande:
+            st.caption("Väntande förfrågningar")
+        for f in väntande:
+            st.write(f"**{f['email']}**")
+            c1, c2 = st.columns(2)
+            if c1.button("Godkänn", key=f"ok_{f['id']}"):
+                admin_supabase.table("konto_forfragningar").update({
+                    "status": "tillaten",
+                }).eq("id", f["id"]).execute()
+                st.rerun()
+            if c2.button("Neka", key=f"nej_{f['id']}"):
+                admin_supabase.table("konto_forfragningar").delete().eq("id", f["id"]).execute()
+                st.rerun()
+
+        if tillatna:
+            st.caption("Godkända adresser")
+        for f in tillatna:
+            c1, c2 = st.columns([4, 1])
+            c1.write(f"✅ {f['email']}")
+            if c2.button("Ta bort", key=f"bort_{f['id']}"):
+                admin_supabase.table("konto_forfragningar").delete().eq("id", f["id"]).execute()
+                st.rerun()
+
+        if not förfrågningar:
+            st.caption("Listan är tom.")
 
     st.divider()
 
