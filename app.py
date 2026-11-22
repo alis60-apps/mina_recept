@@ -374,16 +374,22 @@ else:
                             "- 'nutrition': Ett objekt med uppskattade näringsvärden uppdelade i 'per_portion' och 'per_100g'. Inkludera nycklarna: 'energi', 'protein', 'kolhydrater', 'socker', 'fett', 'mattat_fett', 'fiber', 'salt', samt 'c_vitamin', 'd_vitamin', 'jarn'.\n"
                             "Svara ENDAST med giltig JSON utan markdown-kodblock."
                         )
+response = client.models.generate_content(
+    model=GEMINI_MODEL,
+    contents=[bild, prompt]
+)
 
-                        response = client.models.generate_content(
-                            model=GEMINI_MODEL,
-                            contents=[bild, prompt]
-                        )
+# ÄNDRA HÄR: Lägg till None-check
+raw_text = ""
+if response is not None and response.text is not None:
+    raw_text = response.text.strip()
+else:
+    st.error("Kunde inte få svar från Gemini. Kontrollera API-nyckeln och nätverket.")
+    st.stop()
 
-                        raw_text = response.text.strip()
-                        if raw_text.startswith("```json"):
-                            raw_text = raw_text.replace("```json", "").replace("```", "").strip()
-
+if raw_text.startswith("```json"):
+    raw_text = raw_text.replace("```json", "").replace("```", "").strip()
+                        
                         recept_data = json.loads(raw_text)
                         st.session_state["analyserat_recept"] = recept_data
                         st.success("Receptet har analyserats!")
