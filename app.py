@@ -28,9 +28,9 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY"))
 client = genai.Client(api_key=gemini_api_key)
 
-GEMINI_MODEL = "gemini-3.8-flash"
+GEMINI_MODEL = "gemini-2.0-flash"
 
-VERSION = "v1.68"
+VERSION = "v1.69"
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
 def formatera_ingredienser(text):
@@ -374,25 +374,21 @@ else:
                             "- 'nutrition': Ett objekt med uppskattade näringsvärden uppdelade i 'per_portion' och 'per_100g'. Inkludera nycklarna: 'energi', 'protein', 'kolhydrater', 'socker', 'fett', 'mattat_fett', 'fiber', 'salt', samt 'c_vitamin', 'd_vitamin', 'jarn'.\n"
                             "Svara ENDAST med giltig JSON utan markdown-kodblock."
                         )
-response = client.models.generate_content(
-    model=GEMINI_MODEL,
-    contents=[bild, prompt]
-)
 
-# ÄNDRA HÄR: Lägg till None-check
-raw_text = ""
-if response is not None and response.text is not None:
-    raw_text = response.text.strip()
-else:
-    st.error("Kunde inte få svar från Gemini. Kontrollera API-nyckeln och nätverket.")
-    st.stop()
+                        response = client.models.generate_content(
+                            model=GEMINI_MODEL,
+                            contents=[bild, prompt]
+                        )
 
-if raw_text.startswith("```json"):
-    raw_text = raw_text.replace("```json", "").replace("```", "").strip()
-                        
-                        recept_data = json.loads(raw_text)
-                        st.session_state["analyserat_recept"] = recept_data
-                        st.success("Receptet har analyserats!")
+                        if response is None or response.text is None:
+                            st.error("Inget svar från Gemini. Kontrollera API-nyckel och anslutning.")
+                        else:
+                            raw_text = response.text.strip()
+                            if raw_text.startswith("```json"):
+                                raw_text = raw_text.replace("```json", "").replace("```", "").strip()
+                            recept_data = json.loads(raw_text)
+                            st.session_state["analyserat_recept"] = recept_data
+                            st.success("Receptet har analyserats!")
 
                     except Exception as e:
                         st.error(f"Ett fel uppstod vid anropet till Gemini (modell: {GEMINI_MODEL}): {e}")
@@ -629,8 +625,7 @@ if raw_text.startswith("```json"):
                                       border: none;
                                       padding: 8px 14px;
                                       border-radius: 6px;
-                                      font-weight:
-                                 font-weight: 600;
+                                      font-weight: 600;
                                       cursor: pointer;
                                       font-size: 13px;
                                       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -876,4 +871,4 @@ if raw_text.startswith("```json"):
                         kor_parallellt()
                         st.rerun()
             elif state["har_hamtat"]:
-                st.info("Inga AI-förslag hittades för dessa ingredienser.")     
+                st.info("Inga AI-förslag hittades för dessa ingredienser.")
