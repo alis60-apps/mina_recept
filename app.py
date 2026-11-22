@@ -1,3 +1,196 @@
+import os
+import json
+import uuid
+import re
+import html
+import pandas as pd
+from PIL import Image
+import streamlit as st
+import streamlit.components.v1 as components
+from supabase import create_client, Client
+from google import genai
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+st.set_page_config(page_title="Receptboken", page_icon="📖", layout="centered")
+
+components.html(
+    """
+    <script>
+    setInterval(function() {
+        window.dispatchEvent(new Event('resize'));
+    }, 240000);
+    <\/script>
+    """,
+    height=0
+)
+
+SUPABASE_URL = st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL"))
+SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", os.environ.get("SUPABASE_KEY"))
+BUCKET = "recept-bilder"
+CONTENT_TYPES = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
+
+gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY"))
+client = genai.Client(api_key=gemini_api_key)
+
+GEMINI_MODEL = "gemini-3.8-flash"
+
+VERSION = "v1.70"
+
+
+def skapa_supabase() -> Client:
+    """Ny klient per körning, men auth-sessionen återställs så att RLS och utloggning fungerar."""
+    sb = create_client(SUPABASE_URL, SUPABASE_KEY)
+    sparad = st.session_state.get("auth_session")
+    if sparad:
+        try:
+            sb.auth.set_session(sparad["access_token"], sparad["refresh_token"])
+        except Exception:
+            st.session_state["auth_session"] = None
+            st.session_state["user"] = None
+    return sb
+
+
+supabase: Client = skapa_supabase()
+
+st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
+
+
+def till_int(varde, standard=4, minimum=1, maximum=500):
+    """Tål None, strängar, '4 portioner', '4,0' och flyttal."""
+    if varde is None:
+        return standard
+    try:
+        text = str(varde).replace(",", ".").strip().split()[0]
+        tal = int(float(text))
+    except (ValueError, IndexError):
+        return standard
+    return max(minimum, min(maximum, tal))
+
+
+def formatera_ingredienser(text):
+    if not text:
+        return ""
+    rader = [r.strip() for r in str(text).split("\n") if r.strip()]
+    formaterade = []
+    for r in rader:
+        if not r.startswith("-") and not r.startswith("•") and not r.startswith("*"):
+            formaterade.append(f"- {r}")
+        else:
+            formaterade.append(r)
+    return "\n".join(formaterade)
+
+
+def ta_bort_numrering(text):
+    if not text:
+        return ""
+    rader = str(text).split("\n")
+    rensade = [re.sub(r'^\s*(?:steg\s*)?\d+[.:)\-]\s*', '', r, flags=re.IGNORECASE) for r in rader]
+    return "\n".join(rensade)
+
+
+TAL_MONSTER = re.compile(
+    r'(?<![\w.,])(\d+\s+\d+\s*/\s*\d+|\d+\s*/\s*\d+|\d+[.,]\d+|\d+)'
+    r'(?![\w,]|\s*(?:°|grader|graderna))'
+)
+
+
+def _tolka_tal(text):
+    text = text.strip()
+    m = re.fullmatch(r'(\d+)\s+(\d+)\s*/\s*(\d+)', text)
+    if m:
+        hel, taljare, namnare = m.groups()
+        try:
+            return int(hel) + int(taljare) / int(namnare)
+        except ZeroDivisionError:
+            return float(hel)
+    m = re.fullmatch(r'(\d+)\s*/\s*(\d+)', text)
+    if m:
+        taljare, namnare = m.groups()
+        try:
+            return int(taljare) / int(namnare)
+        except ZeroDivisionError:
+            return 0.0
+    return float(text.replace(",", "."))
+
+
+def _formatera_tal(tal):
+    if abs(tal - round(tal)) < 1e-9:
+        return str(int(round(tal)))
+    return f"{tal:.2f}".rstrip("0").rstrip(".").replace(".", ",")
+
+
+def skala_ingredienser(text, original_servings, target_servings):
+    original_servings = till_int(original_servings, 4)
+    target_servings = till_int(target_servings, original_servings)
+    if not text or original_servings <= 0 or original_servings == target_servings:
+        return text
+
+    factor = target_servings / original_servings
+
+    def ersatt(match):
+        try:
+            tal = _tolka_tal(match.group(1))
+        except (ValueError, ZeroDivisionError):
+            return match.group(0)
+        return _formatera_tal(tal * factor)
+
+    rader = str(text).split("\n")
+    return "\n".join(TAL_MONSTER.sub(ersatt, rad) for rad in rader)
+
+
+def bygg_html_lista(text, med_punkt=True):
+    rader = [r.strip() for r in str(text or "").split("\n") if r.strip()]
+    if not rader:
+        return ""
+    punkter = []
+    for r in rader:
+        r = re.sub(r'^[-•*]\s*', '', r)
+        punkter.append(f"<li>{html.escape(r)}</li>")
+    tag = "ul" if med_punkt else "div"
+    stil = "margin:0;padding-left:18px;line-height:1.3;" if med_punkt else "line-height:1.35;"
+    return f"<{tag} style=\"{stil}\">" + "".join(punkter) + f"</{tag}>"
+
+
+def extrahera_json(text):
+    """Plockar ut JSON även om modellen lindar in det i kodblock eller text."""
+    text = str(text).strip()
+    text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\s*```$', '', text)
+    start, slut = text.find("{"), text.rfind("}")
+    if start != -1 and slut > start:
+        text = text[start:slut + 1]
+    return json.loads(text)
+
+
+NARINGS_ETIKETTER = [
+    ("⚡ Energi", "energi"), ("🥩 Protein", "protein"), ("🍞 Kolhydrater", "kolhydrater"),
+    ("varav sockerarter", "socker"), ("🥑 Fett", "fett"), ("varav mättat fett", "mattat_fett"),
+    ("🌾 Fiber", "fiber"), ("🧂 Salt", "salt"), ("🍊 C-vitamin", "c_vitamin"),
+    ("☀️ D-vitamin", "d_vitamin"), ("🧪 Järn", "jarn"),
+]
+
+
+def _naring_ramar(nutrition):
+    if not isinstance(nutrition, dict):
+        return {}, {}
+    per_portion = nutrition.get("per_portion") or {}
+    per_100g = nutrition.get("per_100g") or {}
+    return (
+        per_portion if isinstance(per_portion, dict) else {},
+        per_100g if isinstance(per_100g, dict) else {},
+    )
+
+
+def bygg_naringstabell(nutrition):
+    p_data, h_data = _naring_ramar(nutrition)
+    if not p_data and not h_data:
+        return None
+    return pd.DataFrame({
+        "Näringsämne": [lbl for lbl, _ in NARINGS_ETIKETTER],
+        "Per 100 g": [h_data.get(ky, "-") for _, ky in NARINGS_ETIKETTER],
+        "Per Portion": [p_data.get(ky, "-") for _, ky in NARINGS_ETIKETTER],
+    })
+
 def rendera_receptvisning(rec_data, unik_nyckel, ta_med_naring=True, kompakt=False):
     titel = rec_data.get("title") or rec_data.get("titel") or "Namnlöst recept"
     kategori = rec_data.get("category") or rec_data.get("kategori") or "Övrigt"
