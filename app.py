@@ -4,7 +4,7 @@ import uuid
 import re
 import html
 import pandas as pd
-from PIL import Image
+from PIL import Image, ImageOps
 import streamlit as st
 import streamlit.components.v1 as components
 from supabase import create_client, Client
@@ -36,7 +36,7 @@ client = genai.Client(api_key=gemini_api_key)
 
 GEMINI_MODEL = "gemini-3.8-flash"
 
-VERSION = "v1.81"
+VERSION = "v1.82"
 
 
 def skapa_supabase() -> Client:
@@ -607,7 +607,10 @@ else:
                 st.session_state["analys_signatur"] = bild_signatur
 
             bild = Image.open(uppladdad_bild)
-            bild.thumbnail((1000, 1000))
+            bild = ImageOps.exif_transpose(bild)
+            if bild.mode != "RGB":
+                bild = bild.convert("RGB")
+            bild.thumbnail((1600, 1600))
             st.image(bild, caption="Uppladdad bild (optimerad)", width=300)
 
             if st.button("Analysera recept med AI", key="btn_analysera"):
@@ -628,18 +631,34 @@ else:
                             "Svara ENDAST med giltig JSON utan markdown-kodblock."
                         )
 
-                        response = client.models.generate_content(
-                            model=GEMINI_MODEL,
-                            contents=[bild, prompt]
-                        )
+                        def kor_analys(extra_config):
+                            return client.models.generate_content(
+                                model=GEMINI_MODEL,
+                                contents=[bild, prompt],
+                                config=extra_config,
+                            )
 
-                        try:
-                            raw_text = response.text if response is not None else None
-                        except Exception:
-                            raw_text = None
+                        raw_text = None
+                        sista_orsak = ""
+                        for försök in range(2):
+                            if försök == 0:
+                                cfg = {"max_output_tokens": 8192, "thinking_config": {"thinking_budget": 0}}
+                            else:
+                                cfg = {}
+                            response = kor_analys(cfg)
+                            try:
+                                raw_text = response.text if response is not None else None
+                            except Exception:
+                                raw_text = None
+                            if raw_text:
+                                break
+                            try:
+                                sista_orsak = str(response.candidates[0].finish_reason)
+                            except Exception:
+                                sista_orsak = "okänt"
 
                         if not raw_text:
-                            st.error("Inget svar från Gemini. Kontrollera API-nyckel och anslutning.")
+                            st.error(f"Inget svar från modellen (orsak: {sista_orsak}).")
                         else:
                             st.session_state["analyserat_recept"] = extrahera_json(raw_text)
                             st.success("Receptet har analyserats!")
