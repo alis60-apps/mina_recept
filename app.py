@@ -19,13 +19,15 @@ components.html(
     setInterval(function() {
         window.dispatchEvent(new Event('resize'));
     }, 240000);
-    <\/script>
+    </script>
     """,
     height=0
 )
 
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL"))
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", os.environ.get("SUPABASE_KEY"))
+SUPABASE_SERVICE_KEY = st.secrets.get("SUPABASE_SERVICE_KEY", os.environ.get("SUPABASE_SERVICE_KEY"))
+ADMIN_EMAIL = st.secrets.get("ADMIN_EMAIL", "")
 BUCKET = "recept-bilder"
 CONTENT_TYPES = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
 
@@ -34,7 +36,7 @@ client = genai.Client(api_key=gemini_api_key)
 
 GEMINI_MODEL = "gemini-3.8-flash"
 
-VERSION = "v1.70"
+VERSION = "v1.81"
 
 
 def skapa_supabase() -> Client:
@@ -51,6 +53,7 @@ def skapa_supabase() -> Client:
 
 
 supabase: Client = skapa_supabase()
+admin_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else supabase
 
 st.title(f"📖 Receptboken med AI-skanning ({VERSION})")
 
@@ -191,6 +194,7 @@ def bygg_naringstabell(nutrition):
         "Per Portion": [p_data.get(ky, "-") for _, ky in NARINGS_ETIKETTER],
     })
 
+
 def rendera_receptvisning(rec_data, unik_nyckel, ta_med_naring=True, kompakt=False):
     titel = rec_data.get("title") or rec_data.get("titel") or "Namnlöst recept"
     kategori = rec_data.get("category") or rec_data.get("kategori") or "Övrigt"
@@ -310,7 +314,40 @@ if not st.session_state["user"] or not st.session_state["auth_session"]:
             except Exception as e:
                 st.error(f"Kunde inte skapa konto: {e}")
 
+    st.divider()
+
+    st.subheader("📨 Begär konto")
+    with st.form("konto_forfragan"):
+        ny_email = st.text_input("E-post för nytt konto", key="ny_email")
+        skicka = st.form_submit_button("Skicka förfrågan")
+        if skicka:
+            if not ny_email or "@" not in ny_email:
+                st.error("Ange en giltig e-postadress.")
+            else:
+                adress = ny_email.strip().lower()
+                finns_redan = False
+                try:
+                    for u in admin_supabase.auth.admin.list_users():
+                        if (u.email or "").lower() == adress:
+                            finns_redan = True
+                            break
+                except Exception:
+                    pass
+
+                if finns_redan:
+                    st.info("Det finns redan ett konto på den adressen. Logga in i stället.")
+                else:
+                    try:
+                        supabase.table("konto_forfragningar").insert({"email": adress}).execute()
+                        st.success("Förfrågan skickad. Du får inloggningsuppgifter när kontot är godkänt.")
+                    except Exception as e:
+                        if "duplicate" in str(e).lower() or "unique" in str(e).lower():
+                            st.info("Det finns redan en förfrågan på den adressen.")
+                        else:
+                            st.error(f"Kunde inte skicka förfrågan: {e}")
+
     st.stop()
+
 with st.sidebar:
     st.header("⚙️ Konto & Inställningar")
     st.write(f"Inloggad som:\n**{st.session_state['user'].email}**")
@@ -473,6 +510,48 @@ with st.sidebar:
         st.session_state["användare_dict"] = {}
         st.session_state["book_name_dict"] = {}
 
+    if ADMIN_EMAIL and st.session_state["user"].email == ADMIN_EMAIL:
+        st.divider()
+        st.subheader("👤 Kontoförfrågningar")
+        try:
+            förfrågningar = admin_supabase.table("konto_forfragningar").select("*").order("skapad").execute().data or []
+        except Exception as e:
+            st.error(f"Kunde inte hämta förfrågningar: {e}")
+            förfrågningar = []
+
+        if not förfrågningar:
+            st.caption("Inga väntande förfrågningar.")
+
+        for f in förfrågningar:
+            if f.get("status") == "godkand":
+                st.code(f["email"], language=None)
+                st.caption("Lösenord att mejla:")
+                st.code(f.get("losenord") or "", language=None)
+                if st.button("Klar", key=f"klar_{f['id']}"):
+                    admin_supabase.table("konto_forfragningar").delete().eq("id", f["id"]).execute()
+                    st.rerun()
+            else:
+                st.write(f"**{f['email']}**")
+                c1, c2 = st.columns(2)
+                if c1.button("Godkänn", key=f"ok_{f['id']}"):
+                    lösen = uuid.uuid4().hex[:10]
+                    try:
+                        admin_supabase.auth.admin.create_user({
+                            "email": f["email"],
+                            "password": lösen,
+                            "email_confirm": True,
+                        })
+                        admin_supabase.table("konto_forfragningar").update({
+                            "status": "godkand",
+                            "losenord": lösen,
+                        }).eq("id", f["id"]).execute()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Kunde inte skapa kontot: {e}")
+                if c2.button("Neka", key=f"nej_{f['id']}"):
+                    admin_supabase.table("konto_forfragningar").delete().eq("id", f["id"]).execute()
+                    st.rerun()
+
     st.divider()
 
     if st.button("Logga ut", type="secondary"):
@@ -511,6 +590,7 @@ if aktiv_delad_användare:
 
 else:
     flik1, flik2, flik3 = st.tabs(["📷 Skanna Recept", "📚 Mina Recept", "🔍 Sök Recept"])
+
     with flik1:
         st.header("Skanna handskrivet recept")
 
@@ -861,6 +941,7 @@ else:
 
         except Exception as e:
             st.error(f"Ett fel uppstod vid hämtning av dina recept: {e}")
+
     with flik3:
         st.header("🔍 Sök recept")
         st.caption("Sök bland dina sparade recept och få nya AI-förslag baserat på ingredienser.")
@@ -1009,8 +1090,12 @@ else:
                     contents=prompt,
                     config={"max_output_tokens": 4096, "thinking_config": {"thinking_budget": 0}}
                 ):
-                    if chunk.text:
-                        buffert["rad"] += chunk.text
+                    try:
+                        bit = chunk.text
+                    except Exception:
+                        bit = None
+                    if bit:
+                        buffert["rad"] += bit
                         while "\n" in buffert["rad"]:
                             klar, buffert["rad"] = buffert["rad"].split("\n", 1)
                             ta_rad(klar)
@@ -1019,22 +1104,23 @@ else:
                     ta_rad(buffert["rad"])
                 return resultat
 
-            def kor_parallellt(tidsgrans=8):
+            def kor_parallellt(tidsgrans=60):
                 befintliga = [f.get("title", "") for f in state["ai_forslag"]]
                 inriktningar = ["huvudrätt", "förrätt eller tillbehör", "efterrätt eller bakverk"]
                 insamlade = []
+                fel = []
                 ex = ThreadPoolExecutor(max_workers=3)
-                futurer = [ex.submit(ett_anrop, inr, befintliga) for inr in inriktningar]
+                futurer = {ex.submit(ett_anrop, inr, befintliga): inr for inr in inriktningar}
                 try:
                     for f in as_completed(futurer, timeout=tidsgrans):
                         try:
                             insamlade.extend(f.result())
                         except Exception as e:
-                            st.caption(f"Ett anrop misslyckades: {e}")
+                            fel.append(f"{futurer[f]}: {e}")
                 except TimeoutError:
-                    st.caption("Tidsgränsen nåddes – visar de förslag som hann bli klara.")
-                except Exception:
-                    pass
+                    fel.append(f"Tidsgränsen på {tidsgrans} sekunder nåddes")
+                except Exception as e:
+                    fel.append(str(e))
                 finally:
                     ex.shutdown(wait=False)
 
@@ -1044,13 +1130,22 @@ else:
                     if t and t not in titlar:
                         titlar.add(t)
                         state["ai_forslag"].append(rd)
-                state["har_hamtat"] = True
+
+                if insamlade:
+                    state["har_hamtat"] = True
+                return fel
 
             if not state["har_hamtat"]:
+                st.caption("Kan ta upp till en minut.")
                 with st.spinner("Tar fram receptförslag..."):
-                    kor_parallellt()
+                    fel = kor_parallellt()
                 if state["ai_forslag"]:
                     st.rerun()
+                else:
+                    for f in fel:
+                        st.warning(f)
+                    if st.button("Försök igen", key="ai_igen"):
+                        st.rerun()
             else:
                 for i, rd in enumerate(state["ai_forslag"]):
                     rita_ai_kort(rd, i)
