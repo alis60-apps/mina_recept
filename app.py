@@ -823,12 +823,17 @@ else:
                     except json.JSONDecodeError:
                         pass
 
-                for chunk in client.models.generate_content_stream(model=GEMINI_MODEL, contents=prompt):
+                for chunk in client.models.generate_content_stream(
+                    model=GEMINI_MODEL,
+                    contents=prompt,
+                    config={"max_output_tokens": 4096, "thinking_config": {"thinking_budget": 0}}
+                ):
                     if chunk.text:
                         buf["rad"] += chunk.text
                         while "\n" in buf["rad"]:
                             klar, buf["rad"] = buf["rad"].split("\n", 1)
                             ta_rad(klar)
+                            
                 if buf["rad"].strip():
                     ta_rad(buf["rad"])
                 return resultat
