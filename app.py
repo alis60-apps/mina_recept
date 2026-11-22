@@ -36,7 +36,7 @@ client = genai.Client(api_key=gemini_api_key)
 
 GEMINI_MODEL = "gemini-3.8-flash"
 
-VERSION = "v1.85"
+VERSION = "v1.86"
 
 
 def skapa_supabase() -> Client:
@@ -298,6 +298,10 @@ if not st.session_state["user"] or not st.session_state["auth_session"]:
             )
         except Exception:
             adress_tillaten = False
+
+        if ADMIN_EMAIL and adress_ren == ADMIN_EMAIL.strip().lower():
+            adress_tillaten = True
+
         if adress_tillaten:
             try:
                 for u in admin_supabase.auth.admin.list_users():
@@ -306,8 +310,7 @@ if not st.session_state["user"] or not st.session_state["auth_session"]:
                         break
             except Exception:
                 pass
-        if adress_ren and adress_ren == ADMIN_EMAIL.lower():
-            adress_tillaten = True
+
         if not adress_tillaten:
             st.caption("Adressen är inte godkänd än. Begär konto nedan.")
         elif adress_har_konto:
@@ -391,224 +394,222 @@ if not st.session_state["user"] or not st.session_state["auth_session"]:
     st.stop()
 
 with st.sidebar:
-    st.header("⚙️ Konto & Inställningar")
-    st.write(f"Inloggad som:\n**{st.session_state['user'].email}**")
+    st.caption("Inloggad som")
+    st.write(f"**{st.session_state['user'].email}**")
 
     st.divider()
 
-    st.subheader("📱 Skärminställning")
-    wake_lock_html = """
-    <div style="margin-bottom: 15px;">
-        <button id="wakelock-btn" onclick="toggleWakeLock()" style="
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            padding: 10px 16px;
-            border-radius: 8px;
-            font-weight: bold;
-            cursor: pointer;
-            width: 100%;
-            font-size: 14px;
-        ">💡 Håll skärmen tänd: AV</button>
-        <p id="wakelock-status" style="font-size: 12px; color: #666; margin-top: 5px; text-align: center;"></p>
-    </div>
-
-    <script>
-    let wakeLock = null;
-
-    function visa(lage) {
-        const btn = document.getElementById('wakelock-btn');
-        const status = document.getElementById('wakelock-status');
-        if (lage === 'pa') {
-            btn.innerText = '💡 Håll skärmen tänd: PÅ';
-            btn.style.backgroundColor = '#ff9800';
-            status.innerText = 'Skärmen förblir tänd';
-        } else {
-            btn.innerText = '💡 Håll skärmen tänd: AV';
-            btn.style.backgroundColor = '#4CAF50';
-            status.innerText = 'Normal skärmsläckning';
-        }
-    }
-
-    if (localStorage.getItem('wakelock') === '1') {
-        visa('pa');
-        document.getElementById('wakelock-status').innerText = 'Tryck för att aktivera igen';
-    }
-
-    async function begar() {
-        try {
-            wakeLock = await navigator.wakeLock.request('screen');
-            wakeLock.addEventListener('release', function () { wakeLock = null; });
-            return true;
-        } catch (err) {
-            document.getElementById('wakelock-status').innerText = 'Kunde inte aktivera: ' + err.message;
-            return false;
-        }
-    }
-
-    async function toggleWakeLock() {
-        if (!('wakeLock' in navigator)) {
-            document.getElementById('wakelock-status').innerText = 'Din webbläsare stöder inte Screen Wake Lock API.';
-            return;
-        }
-        if (wakeLock === null) {
-            if (await begar()) {
-                localStorage.setItem('wakelock', '1');
-                visa('pa');
-            }
-        } else {
-            wakeLock.release();
-            wakeLock = null;
-            localStorage.setItem('wakelock', '0');
-            visa('av');
-        }
-    }
-
-    document.addEventListener('visibilitychange', async function () {
-        if (document.visibilityState === 'visible' && wakeLock === null && localStorage.getItem('wakelock') === '1') {
-            await begar();
-        }
-    });
-    </script>
-    """
-    components.html(wake_lock_html, height=80)
-
-    st.divider()
-
-    st.subheader("Mina delningsinställningar")
-    nuvarande_status = False
-    nuvarande_book_name = "Min Receptbok"
-    try:
-        user_check = supabase.table("recept").select("is_public, book_name").eq("user_id", st.session_state["user"].id).limit(1).execute()
-        if user_check.data:
-            nuvarande_status = bool(user_check.data[0].get("is_public", False))
-            nuvarande_book_name = user_check.data[0].get("book_name") or "Min Receptbok"
-    except Exception:
-        pass
-
-    if "bok_namn_input" not in st.session_state:
-        st.session_state["bok_namn_input"] = nuvarande_book_name
-    if "bok_publik_input" not in st.session_state:
-        st.session_state["bok_publik_input"] = nuvarande_status
-
-    st.text_input("Namn på din receptbok", key="bok_namn_input")
-    st.checkbox("🌐 Gör hela receptboken publik", key="bok_publik_input")
-
-    if st.button("Spara inställningar"):
-        try:
-            supabase.table("recept").update({
-                "is_public": st.session_state["bok_publik_input"],
-                "book_name": st.session_state["bok_namn_input"],
-            }).eq("user_id", st.session_state["user"].id).execute()
-            st.success("Inställningarna har sparats!")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Kunde inte uppdatera: {e}")
-
-    st.divider()
-
-    st.subheader("👥 Andras Receptböcker")
+    st.caption("Läs en annan receptbok")
     try:
         publika_res = supabase.table("recept").select("*").eq("is_public", True).execute()
         publika_recept = publika_res.data or []
-
-        if not publika_recept:
-            st.info("Inga publika receptböcker hittades.")
-            st.session_state["vald_delad_användare"] = None
-            st.session_state["användare_dict"] = {}
-            st.session_state["book_name_dict"] = {}
-        else:
-            användare_dict = {}
-            book_name_dict = {}
-            for rec in publika_recept:
-                uid = rec.get("user_id")
-                if not uid:
-                    continue
-                if uid not in användare_dict:
-                    användare_dict[uid] = []
-                    book_name_dict[uid] = rec.get("book_name") or f"Receptbok ({uid[:6]}...)"
-                användare_dict[uid].append(rec)
-
-            options_list = [None] + list(användare_dict.keys())
-            if st.session_state.get("select_delad_bok") not in options_list:
-                st.session_state["select_delad_bok"] = None
-
-            def format_func(x):
-                if x is None:
-                    return "🏠 Visa Mina Egna Recept"
-                return f"📖 {book_name_dict.get(x, 'Receptbok')}"
-
-            vald_användare = st.selectbox(
-                "Välj bok att läsa:", options=options_list,
-                format_func=format_func, key="select_delad_bok"
-            )
-            st.session_state["vald_delad_användare"] = vald_användare
-            st.session_state["användare_dict"] = användare_dict
-            st.session_state["book_name_dict"] = book_name_dict
-
     except Exception:
-        st.error("Kunde inte hämta delade böcker.")
+        publika_recept = []
+        st.caption("Kunde inte hämta delade böcker.")
+
+    if not publika_recept:
+        st.caption("Inga publika receptböcker.")
         st.session_state["vald_delad_användare"] = None
         st.session_state["användare_dict"] = {}
         st.session_state["book_name_dict"] = {}
+    else:
+        användare_dict = {}
+        book_name_dict = {}
+        for rec in publika_recept:
+            uid = rec.get("user_id")
+            if not uid:
+                continue
+            if uid not in användare_dict:
+                användare_dict[uid] = []
+                book_name_dict[uid] = rec.get("book_name") or f"Receptbok ({uid[:6]}...)"
+            användare_dict[uid].append(rec)
 
-    if ADMIN_EMAIL and st.session_state["user"].email == ADMIN_EMAIL:
-        st.divider()
-        st.subheader("👤 Åtkomstlista")
-        try:
-            förfrågningar = admin_supabase.table("konto_forfragningar").select("*").order("skapad").execute().data or []
-        except Exception as e:
-            st.error(f"Kunde inte hämta listan: {e}")
-            förfrågningar = []
+        options_list = [None] + list(användare_dict.keys())
+        if st.session_state.get("select_delad_bok") not in options_list:
+            st.session_state["select_delad_bok"] = None
 
-        with st.form("lagg_till_adress"):
-            tillagg_email = st.text_input("Lägg till adress direkt", key="tillagg_email")
-            tillagg = st.form_submit_button("Lägg till")
-            if tillagg:
-                if not tillagg_email or "@" not in tillagg_email:
-                    st.error("Ange en giltig e-postadress.")
-                else:
-                    try:
-                        admin_supabase.table("konto_forfragningar").upsert({
-                            "email": tillagg_email.strip().lower(),
-                            "status": "tillaten",
-                        }, on_conflict="email").execute()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Kunde inte lägga till: {e}")
+        def format_func(x):
+            if x is None:
+                return "🏠 Mina egna recept"
+            return f"📖 {book_name_dict.get(x, 'Receptbok')}"
 
-        väntande = [f for f in förfrågningar if f.get("status") != "tillaten"]
-        tillatna = [f for f in förfrågningar if f.get("status") == "tillaten"]
-
-        if väntande:
-            st.caption("Väntande förfrågningar")
-        for f in väntande:
-            st.write(f"**{f['email']}**")
-            c1, c2 = st.columns(2)
-            if c1.button("Godkänn", key=f"ok_{f['id']}"):
-                admin_supabase.table("konto_forfragningar").update({
-                    "status": "tillaten",
-                }).eq("id", f["id"]).execute()
-                st.rerun()
-            if c2.button("Neka", key=f"nej_{f['id']}"):
-                admin_supabase.table("konto_forfragningar").delete().eq("id", f["id"]).execute()
-                st.rerun()
-
-        if tillatna:
-            st.caption("Godkända adresser")
-        for f in tillatna:
-            c1, c2 = st.columns([4, 1])
-            c1.write(f"✅ {f['email']}")
-            if c2.button("Ta bort", key=f"bort_{f['id']}"):
-                admin_supabase.table("konto_forfragningar").delete().eq("id", f["id"]).execute()
-                st.rerun()
-
-        if not förfrågningar:
-            st.caption("Listan är tom.")
+        vald_användare = st.selectbox(
+            "Visa:", options=options_list,
+            format_func=format_func, key="select_delad_bok"
+        )
+        st.session_state["vald_delad_användare"] = vald_användare
+        st.session_state["användare_dict"] = användare_dict
+        st.session_state["book_name_dict"] = book_name_dict
 
     st.divider()
 
-    if st.button("Logga ut", type="secondary"):
+    with st.expander("Dela min receptbok"):
+        nuvarande_status = False
+        nuvarande_book_name = "Min Receptbok"
+        try:
+            user_check = supabase.table("recept").select("is_public, book_name").eq("user_id", st.session_state["user"].id).limit(1).execute()
+            if user_check.data:
+                nuvarande_status = bool(user_check.data[0].get("is_public", False))
+                nuvarande_book_name = user_check.data[0].get("book_name") or "Min Receptbok"
+        except Exception:
+            pass
+
+        if "bok_namn_input" not in st.session_state:
+            st.session_state["bok_namn_input"] = nuvarande_book_name
+        if "bok_publik_input" not in st.session_state:
+            st.session_state["bok_publik_input"] = nuvarande_status
+
+        st.text_input("Namn på din receptbok", key="bok_namn_input")
+        st.checkbox("Gör hela receptboken publik", key="bok_publik_input")
+
+        if st.button("Spara", key="spara_delning"):
+            try:
+                supabase.table("recept").update({
+                    "is_public": st.session_state["bok_publik_input"],
+                    "book_name": st.session_state["bok_namn_input"],
+                }).eq("user_id", st.session_state["user"].id).execute()
+                st.success("Sparat!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Kunde inte uppdatera: {e}")
+
+    with st.expander("Skärmen tänd"):
+        wake_lock_html = """
+        <div style="margin-bottom: 10px;">
+            <button id="wakelock-btn" onclick="toggleWakeLock()" style="
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 10px 16px;
+                border-radius: 8px;
+                font-weight: bold;
+                cursor: pointer;
+                width: 100%;
+                font-size: 14px;
+            ">💡 Håll skärmen tänd: AV</button>
+            <p id="wakelock-status" style="font-size: 12px; color: #666; margin-top: 5px; text-align: center;"></p>
+        </div>
+
+        <script>
+        let wakeLock = null;
+
+        function visa(lage) {
+            const btn = document.getElementById('wakelock-btn');
+            const status = document.getElementById('wakelock-status');
+            if (lage === 'pa') {
+                btn.innerText = '💡 Håll skärmen tänd: PÅ';
+                btn.style.backgroundColor = '#ff9800';
+                status.innerText = 'Skärmen förblir tänd';
+            } else {
+                btn.innerText = '💡 Håll skärmen tänd: AV';
+                btn.style.backgroundColor = '#4CAF50';
+                status.innerText = 'Normal skärmsläckning';
+            }
+        }
+
+        if (localStorage.getItem('wakelock') === '1') {
+            visa('pa');
+            document.getElementById('wakelock-status').innerText = 'Tryck för att aktivera igen';
+        }
+
+        async function begar() {
+            try {
+                wakeLock = await navigator.wakeLock.request('screen');
+                wakeLock.addEventListener('release', function () { wakeLock = null; });
+                return true;
+            } catch (err) {
+                document.getElementById('wakelock-status').innerText = 'Kunde inte aktivera: ' + err.message;
+                return false;
+            }
+        }
+
+        async function toggleWakeLock() {
+            if (!('wakeLock' in navigator)) {
+                document.getElementById('wakelock-status').innerText = 'Din webbläsare stöder inte Screen Wake Lock API.';
+                return;
+            }
+            if (wakeLock === null) {
+                if (await begar()) {
+                    localStorage.setItem('wakelock', '1');
+                    visa('pa');
+                }
+            } else {
+                wakeLock.release();
+                wakeLock = null;
+                localStorage.setItem('wakelock', '0');
+                visa('av');
+            }
+        }
+
+        document.addEventListener('visibilitychange', async function () {
+            if (document.visibilityState === 'visible' && wakeLock === null && localStorage.getItem('wakelock') === '1') {
+                await begar();
+            }
+        });
+        </script>
+        """
+        components.html(wake_lock_html, height=80)
+
+    är_admin = bool(ADMIN_EMAIL) and (st.session_state["user"].email or "").strip().lower() == ADMIN_EMAIL.strip().lower()
+
+    if är_admin:
+        with st.expander("Åtkomstlista"):
+            try:
+                förfrågningar = admin_supabase.table("konto_forfragningar").select("*").order("skapad").execute().data or []
+            except Exception as e:
+                st.error(f"Kunde inte hämta listan: {e}")
+                förfrågningar = []
+
+            with st.form("lagg_till_adress"):
+                tillagg_email = st.text_input("Lägg till adress direkt", key="tillagg_email")
+                tillagg = st.form_submit_button("Lägg till")
+                if tillagg:
+                    if not tillagg_email or "@" not in tillagg_email:
+                        st.error("Ange en giltig e-postadress.")
+                    else:
+                        try:
+                            admin_supabase.table("konto_forfragningar").upsert({
+                                "email": tillagg_email.strip().lower(),
+                                "status": "tillaten",
+                            }, on_conflict="email").execute()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Kunde inte lägga till: {e}")
+
+            väntande = [f for f in förfrågningar if f.get("status") != "tillaten"]
+            tillatna = [f for f in förfrågningar if f.get("status") == "tillaten"]
+
+            if väntande:
+                st.caption("Väntande förfrågningar")
+            for f in väntande:
+                st.write(f"**{f['email']}**")
+                c1, c2 = st.columns(2)
+                if c1.button("Godkänn", key=f"ok_{f['id']}"):
+                    admin_supabase.table("konto_forfragningar").update({
+                        "status": "tillaten",
+                    }).eq("id", f["id"]).execute()
+                    st.rerun()
+                if c2.button("Neka", key=f"nej_{f['id']}"):
+                    admin_supabase.table("konto_forfragningar").delete().eq("id", f["id"]).execute()
+                    st.rerun()
+
+            if tillatna:
+                st.caption("Godkända adresser")
+            for f in tillatna:
+                c1, c2 = st.columns([4, 1])
+                c1.write(f"✅ {f['email']}")
+                if c2.button("Ta bort", key=f"bort_{f['id']}"):
+                    admin_supabase.table("konto_forfragningar").delete().eq("id", f["id"]).execute()
+                    st.rerun()
+
+            if not förfrågningar:
+                st.caption("Listan är tom.")
+    elif ADMIN_EMAIL:
+        st.caption(f"admin='{ADMIN_EMAIL}' jag='{st.session_state['user'].email}'")
+
+    st.divider()
+
+    if st.button("Logga ut", type="secondary", use_container_width=True):
         try:
             supabase.auth.sign_out()
         except Exception:
