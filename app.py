@@ -36,7 +36,7 @@ client = genai.Client(api_key=gemini_api_key)
 
 GEMINI_MODEL = "gemini-3.8-flash"
 
-VERSION = "v1.82"
+VERSION = "v1.84"
 
 
 def skapa_supabase() -> Client:
@@ -610,57 +610,101 @@ else:
             bild = ImageOps.exif_transpose(bild)
             if bild.mode != "RGB":
                 bild = bild.convert("RGB")
+
+            vinkel = st.selectbox(
+                "Rotera bild om den ligger fel:",
+                options=[0, 90, 180, 270],
+                format_func=lambda v: "Ingen rotation" if v == 0 else f"{v}° medurs",
+                key=f"rotation_{st.session_state['uploader_key']}",
+            )
+            if vinkel:
+                bild = bild.rotate(-vinkel, expand=True)
+
             bild.thumbnail((1600, 1600))
             st.image(bild, caption="Uppladdad bild (optimerad)", width=300)
 
             if st.button("Analysera recept med AI", key="btn_analysera"):
-                with st.spinner("Analyserar handstil, portionsantal och beräknar näringsvärden & vitaminer..."):
+                with st.spinner("Läser ingredienser, steg och näring..."):
                     try:
-                        prompt = (
-                            "Analysera denna bild av ett recept ytterst noggrant från början till slut. "
-                            "Leta särskilt efter portionsangivelser/antal högst upp, i rubriceringen eller marginalen (t.ex. '12 st', '20 kakor', 'för 4 personer'). "
-                            "Plocka bort portionsangivelsen från själva ingredienslistan så att den inte dubbleras där. "
-                            "Returnera svaret strikt som en JSON-struktur med följande nycklar:\n"
-                            "- 'title': Receptets namn\n"
-                            "- 'category': Passande kategori (t.ex. Förrätt, Huvudrätt, Efterrätt, Bakverk)\n"
-                            "- 'portioner_antal': Antal portioner/stycken som ett heltal (t.ex. 12 för 12 st, 20 för 20 kakor, eller 4 för 4 pers)\n"
-                            "- 'portioner_enhet': Enheten som en kort sträng (t.ex. 'st', 'kakor', 'portioner', 'muffins', 'plåt'). Standard är 'portioner'.\n"
-                            "- 'ingredients': Ingredienslistan formaterad som en sträng där VARJE ingrediens ligger på en egen ny rad med bindestreck i början (t.ex. '- 2 st ägg\\n- 1 dl mjölk'). Inkludera INGA rubriker som '12 st' här.\n"
-                            "- 'instructions': HELA tillagningsstegen renskrivna som vanliga stycken UTAN NÅGON NUMRERING (inga siffror som 1., 2. i början av rader).\n"
-                            "- 'nutrition': Ett objekt med uppskattade näringsvärden uppdelade i 'per_portion' och 'per_100g'. Inkludera nycklarna: 'energi', 'protein', 'kolhydrater', 'socker', 'fett', 'mattat_fett', 'fiber', 'salt', samt 'c_vitamin', 'd_vitamin', 'jarn'.\n"
-                            "Svara ENDAST med giltig JSON utan markdown-kodblock."
+                        meta_prompt = (
+                            "Läs av receptet på bilden. Returnera ENDAST JSON med nycklarna "
+                            "'title', 'category', 'portioner_antal', 'portioner_enhet' och 'ingredients'. "
+                            "'ingredients' ska vara en sträng där varje ingrediens ligger på egen rad med "
+                            "bindestreck först, med mått, exakt som i originalet. "
+                            "Hitta portionsangivelsen om den finns (t.ex. '1 portion', '4 personer', '20 kakor') "
+                            "och lägg den i 'portioner_antal' och 'portioner_enhet', inte i ingredienslistan. "
+                            "Svara utan markdown-kodblock."
                         )
 
-                        def kor_analys(extra_config):
+                        steg_prompt = (
+                            "Skriv tillagningsstegen från bilden i nyckeln 'instructions'. "
+                            "Sammanfatta varje steg kort med egna ord, en mening per steg, utan numrering. "
+                            "Returnera ENDAST JSON med den nyckeln."
+                        )
+
+                        nar_prompt = (
+                            "Uppskatta näringsvärden per portion och per 100 g för receptet på bilden. "
+                            "Returnera ENDAST JSON med nyckeln 'nutrition', som ett objekt med 'per_portion' "
+                            "och 'per_100g', vilka i sin tur har 'energi', 'protein', 'kolhydrater', 'socker', "
+                            "'fett', 'mattat_fett', 'fiber', 'salt', 'c_vitamin', 'd_vitamin' och 'jarn'."
+                        )
+
+                        def anropa(text_prompt):
                             return client.models.generate_content(
                                 model=GEMINI_MODEL,
-                                contents=[bild, prompt],
-                                config=extra_config,
+                                contents=[bild, text_prompt],
+                                config={"max_output_tokens": 4096, "thinking_config": {"thinking_budget": 0}},
                             )
 
-                        raw_text = None
-                        sista_orsak = ""
-                        for försök in range(2):
-                            if försök == 0:
-                                cfg = {"max_output_tokens": 8192, "thinking_config": {"thinking_budget": 0}}
-                            else:
-                                cfg = {}
-                            response = kor_analys(cfg)
-                            try:
-                                raw_text = response.text if response is not None else None
-                            except Exception:
-                                raw_text = None
-                            if raw_text:
-                                break
-                            try:
-                                sista_orsak = str(response.candidates[0].finish_reason)
-                            except Exception:
-                                sista_orsak = "okänt"
+                        def med_omforsok(text_prompt):
+                            """Två försök: rakt av, sedan med skarpare krav på egna ord."""
+                            orsak = "okänt"
+                            for i in range(2):
+                                p = text_prompt
+                                if i == 1:
+                                    p += " Formulera dig med egna ord, inte ordagrant efter originalet."
+                                r = anropa(p)
+                                try:
+                                    svar = r.text if r is not None else None
+                                except Exception:
+                                    svar = None
+                                if svar:
+                                    return svar, ""
+                                try:
+                                    orsak = str(r.candidates[0].finish_reason)
+                                except Exception:
+                                    pass
+                            return None, orsak
 
-                        if not raw_text:
-                            st.error(f"Inget svar från modellen (orsak: {sista_orsak}).")
+                        delar = {}
+                        orsaker = []
+                        for nyckel, text_prompt in (
+                            ("grund", meta_prompt),
+                            ("steg", steg_prompt),
+                            ("naring", nar_prompt),
+                        ):
+                            svar, orsak = med_omforsok(text_prompt)
+                            if svar:
+                                delar[nyckel] = svar
+                            else:
+                                orsaker.append(f"{nyckel}: {orsak}")
+
+                        rec = {}
+                        for nyckel in ("grund", "steg", "naring"):
+                            if nyckel in delar:
+                                try:
+                                    rec.update(extrahera_json(delar[nyckel]))
+                                except Exception:
+                                    pass
+
+                        if not rec.get("ingredients"):
+                            st.error("Kunde inte läsa receptet.")
+                            if orsaker:
+                                st.caption(" | ".join(orsaker))
                         else:
-                            st.session_state["analyserat_recept"] = extrahera_json(raw_text)
+                            st.session_state["analyserat_recept"] = rec
+                            if orsaker:
+                                st.warning("Vissa delar kunde inte läsas: " + " | ".join(orsaker))
                             st.success("Receptet har analyserats!")
 
                     except Exception as e:
